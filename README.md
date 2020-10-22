@@ -1,4 +1,5 @@
-***RV_cross-correlator***
+**RV_cross-correlator**
+
 Owner: Erika M. Holmbeck
 Last updated: 22 Oct 2020
 
