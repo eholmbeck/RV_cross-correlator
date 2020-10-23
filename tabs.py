@@ -597,7 +597,7 @@ class Corrections:
 		
 		self.ccf_ax.text(0.05, 0.95, "Aperture %s" %int(self.rv_data[0][row]),\
 					va="top", transform=self.ccf_ax.transAxes)
-		self.ccf_ax.axvline(0, color='k', lw=0.8, lw=2, alpha=0.5)
+		self.ccf_ax.axvline(0, color='k', lw=2, alpha=0.5)
 
 		# Recover old RV
 		ckms = c.to(u.km/u.s).value
