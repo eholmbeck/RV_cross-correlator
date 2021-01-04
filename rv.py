@@ -25,22 +25,26 @@ def triangle(x, centroid, m1, m2, b1):
 	
 # ==========================================================
 # ==========================================================
+#template has 61, science has 58
 
 def cross_correlate(template, science, aperture, log=None):
+	#ap_difference = science.apertures - template.apertures
+	#template_aperture = aperture
+	
 	try:
 		template.wavelength[aperture]
 		science.wavelength[aperture]
+		
 	except:
-		# aperture does not exist in template/science
-		#return None, None, None, 0
 		return None
 	
 	# Find over-lapping regions
+	# TODO: Also the possibility that the apertures are mislabelled
 	overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
 						min(template.wavelength[aperture])]))[0][0],
 					 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
-					 	max(template.wavelength[aperture])]))[0][-1]]
-				 
+						max(template.wavelength[aperture])]))[0][-1]]
+
 	wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]]
 	scidata = science.data[aperture][overlap_range[0]:overlap_range[1]]
 	

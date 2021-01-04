@@ -177,7 +177,8 @@ class Start:
 		self.ax.text(0.05, 0.95, "Aperture %s" %int(self.science.first_beam),\
 					va="top", transform=self.ax.transAxes)
 		self.spec_plot.draw()
-		self.ap_num = self.science.first_beam
+		
+		#self.ap_num = self.science.first_beam
 		self.ap_text.set(self.ap_num)
 		return filename
 
@@ -190,7 +191,14 @@ class Start:
 		filename = askopenfilename(filetypes=(("fits files", "*.fits"), ("All files", "*,*")))
 		self.template = spectrum.FITS(filename)
 		self.vhelio_template_exists()
-		self.template_plot = self.plot_ap(self.template, self.science.first_beam, lw=1, color="gray")
+		if self.template.first_beam > self.science.first_beam:
+			self.ap_num = self.template.first_beam
+			self.science_plot = self.plot_ap(self.science, self.ap_num, lw=1)
+			self.template_plot = self.plot_ap(self.template, self.ap_num, lw=1, color="gray")
+
+		else:
+			self.template_plot = self.plot_ap(self.template, self.science.first_beam, lw=1, color="gray")
+
 		self.spec_plot.draw()
 		return filename
 	
@@ -326,16 +334,24 @@ class Corrections:
 					lon=spectrum.header["SITELONG"]*u.deg,
 					height=spectrum.header["SITEALT"]*u.m)
 
-			RA = spectrum.header["RA-D"]
-			DEC = spectrum.header["DEC-D"]
+			try:
+				RA = spectrum.header["RA-D"]
+				DEC = spectrum.header["DEC-D"]
+				sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
+			except:
+				RA = spectrum.header['RA']
+				DEC = spectrum.header['DEC']
+				sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
+
 			# TO-DO: CHANGE TO UT-MID
+			'''
 			try:
 				UT_MID = spectrum.header["UT-DATE"]+" "+spectrum.header["UT-START"]
 			except TypeError:
 				UT_MID = spectrum.header["UT-DATE"]+" "+spectrum.header["UT-TIME"]
-			
-			sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
-			barycorr = sc.radial_velocity_correction(obstime=Time(UT_MID, format='iso', scale="utc"), location=site) 
+			'''
+			UT_MID = spectrum.header['DATE']
+			barycorr = sc.radial_velocity_correction(obstime=Time(UT_MID, format='isot', scale="utc"), location=site) 
 			bcv = barycorr.to(u.km/u.s).value
 			return bcv
 

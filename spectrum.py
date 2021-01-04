@@ -45,14 +45,17 @@ class FITS:
 			aperture, beam, dispersion_type, dispersion_start, \
 				mean_dispersion_delta, num_pixels = disp_data[0:6]
 		
-			wavelength[aperture] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+			wavelength[beam] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
 
-		aps = list(map(float, wavelength.keys()))
+		aps = list(map(int, wavelength.keys()))
 		self.first_beam = min(aps)
 		data_copy = self.data
 		self.data = {}
-		for a in range(self.apertures):
-			self.data[a+self.first_beam] = data_copy[a]
+		#for a in range(self.apertures):
+		#	self.data[a+self.first_beam] = data_copy[a]
+		# Using beam instead of aperture
+		for a in aps:
+			self.data[a] = data_copy[a-self.first_beam]
 
 		return wavelength
 		
