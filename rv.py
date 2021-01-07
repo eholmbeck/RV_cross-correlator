@@ -40,10 +40,24 @@ def cross_correlate(template, science, aperture, log=None):
 	
 	# Find over-lapping regions
 	# TODO: Also the possibility that the apertures are mislabelled
-	overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
-						min(template.wavelength[aperture])]))[0][0],
-					 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
-						max(template.wavelength[aperture])]))[0][-1]]
+	# -- RESOLVED: Use beam number instead
+	# TODO: What is the apertures are descending (e.g., APO data)?
+	#import pdb
+	#pdb.set_trace()
+	descending = False
+	if science.wavelength[aperture][1] < science.wavelength[aperture][0]:
+		descending = True
+	
+	if descending:
+		overlap_range = [np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
+							max(template.wavelength[aperture])]))[0][0],
+						 np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
+							min(template.wavelength[aperture])]))[0][-1]]
+	else:
+		overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
+							min(template.wavelength[aperture])]))[0][0],
+						 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
+							max(template.wavelength[aperture])]))[0][-1]]
 
 	wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]]
 	scidata = science.data[aperture][overlap_range[0]:overlap_range[1]]
@@ -65,8 +79,13 @@ def cross_correlate(template, science, aperture, log=None):
 
 	#fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
 	#binned_template = fit(wavelengths)
-	overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[0])[0][0],
-					 np.where(template.wavelength[aperture]<=wavelengths[-1])[0][-1]]
+	if descending:
+		overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[-1])[0][0],
+						 np.where(template.wavelength[aperture]<=wavelengths[0])[0][-1]]
+	else:
+		overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[0])[0][0],
+						 np.where(template.wavelength[aperture]<=wavelengths[-1])[0][-1]]
+
 
 	tempdata = template.data[aperture][overlap_range[0]:overlap_range[1]]
 	template_binned = True

@@ -330,9 +330,15 @@ class Corrections:
 			return spectrum.header["BCV"]
 		
 		else:
-			site = EarthLocation.from_geodetic(lat=spectrum.header["SITELAT"]*u.deg, 
-					lon=spectrum.header["SITELONG"]*u.deg,
-					height=spectrum.header["SITEALT"]*u.m)
+			try:
+				#import pdb
+				#pdb.set_trace()
+				site = EarthLocation.of_site(spectrum.header["OBSERVAT"]) 
+				
+			except:
+				site = EarthLocation.from_geodetic(lat=spectrum.header["SITELAT"]*u.deg, 
+						lon=spectrum.header["SITELONG"]*u.deg,
+						height=spectrum.header["SITEALT"]*u.m)
 
 			try:
 				RA = spectrum.header["RA-D"]
@@ -344,14 +350,20 @@ class Corrections:
 				sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
 
 			# TO-DO: CHANGE TO UT-MID
-			'''
 			try:
-				UT_MID = spectrum.header["UT-DATE"]+" "+spectrum.header["UT-START"]
+				UT_DATE = spectrum.header['DATE-OBS']
+			except:
+				UT_DATE = spectrum.header['UT-DATE']
+			
+			try:
+				UT_TIME = spectrum.header["UT"]
 			except TypeError:
-				UT_MID = spectrum.header["UT-DATE"]+" "+spectrum.header["UT-TIME"]
-			'''
-			UT_MID = spectrum.header['DATE']
-			barycorr = sc.radial_velocity_correction(obstime=Time(UT_MID, format='isot', scale="utc"), location=site) 
+				UT_TIME = spectrum.header["UT-TIME"]
+				
+			ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
+			ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+	
+			barycorr = sc.radial_velocity_correction(obstime=ut_mid, location=site) 
 			bcv = barycorr.to(u.km/u.s).value
 			return bcv
 
@@ -452,48 +464,10 @@ class Corrections:
 			ind = event.ind[0]
 			
 			x_move = event.artist.get_xdata()[ind]
-			'''
-			if x_move in self.rv_data[0,self.keep]:
-				loc = np.where(self.rv_data[0,self.keep]==x_move)[0][0]
-				self.rv_data[3,loc] = abs(self.rv_data[3,loc]%2-1)
-				self.rv_data = self.rv_data[:,self.rv_data[0]!=x_move]
-				self.keep = np.where(self.rv_data[3]==1)[0]
-			
-			# NEED TO FIX THESE NEW_DATA_LISTs 
-			else:
-				loc = np.where(self.rv_data[0]==x_move)[0][0]
-				self.new_data_list = np.append(self.new_data_list, np.array([self.rv_data[:,loc]]).T, axis=-1)
-				self.new_data_list = self.new_data_list[:,self.new_data_list.argsort()[0]]
-			
-			self.new_data_list, avg, std, n = rv.rv_average(self.new_data_list, 2.0)
-			'''
 			loc = np.where(self.rv_data[0]==x_move)[0][0]
-			#self.select_aps(loc)
-			# Used to be that a click unselects. Now, let's plot the CCF
 			self.plot_ccf(loc)
-			
-			#self.rv_data[3,loc] = abs(self.rv_data[3,loc]%2-1)
-			#self.CheckVar.set(abs(self.rv_data[3,loc]%2-1))
-			'''
-			self.keep = np.where(self.rv_data[3]==1)[0]
-			avg = np.mean(self.rv_data[1,self.keep])
-			std = np.sqrt(np.sum([(d-avg)**2. for d in \
-						 self.rv_data[1,self.keep]])/len(self.rv_data[1,self.keep]))
-			std = std/np.sqrt(len(self.rv_data[1,self.keep])-1)
-			n = len(self.keep)
-			
-			self.vhelio = [avg,std]
-			self.doppler_velocity = self.vhelio[0] - self.bcv
-			self.ax.cla()
-			self.ax.text(0.05, 0.95, "%s apertures used" %int(n),\
-						va="top", transform=self.ax.transAxes)
-			
-			self.plot_results()
-			self.vh.set("{:.2f}".format(self.vhelio[0])+u" \u00B1 "+"{:.2f}".format(self.vhelio[1]))
-			'''
-			# Call select_aps too
-			#self.select_aps
-			
+		
+		return			
 			
 	def rv_table(self):
 		rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
@@ -555,6 +529,7 @@ class Corrections:
 		vsbar = Scrollbar(FMas, orient="vertical", command=self.rv_table_box.yview)
 		vsbar.grid(row=3, column=1)
 		'''
+		return
 	
 	def select_aps(self, row):
 		self.rv_checks[row].set(int(abs(self.rv_data[3,row]%2-1)))
@@ -562,39 +537,6 @@ class Corrections:
 		
 		self.keep = np.where(self.rv_data[3]==1)[0]
 		self.rv_average(sig_clip=0)
-		
-		'''
-		#self.new_data_list = self.rv_data[:,np.where(self.rv_data[3]==1)[0]]
-		avg = np.mean(self.rv_data[1,self.keep])
-		n = len(self.keep)
-		std = np.sqrt(np.sum([(d-avg)**2. for d in \
-					 self.rv_data[1,self.keep]])/float(n))
-		std = std/np.sqrt(float(n-1))
-		
-		std1 = np.sqrt(sum([(err)**2. for err in \
-					   self.rv_data[2,self.keep]]))/float(n)
-		
-		total_std = np.sqrt(std**2. + std1**2.)
-		
-		self.vhelio = [avg,total_std]
-		'''
-		
-		#self.plot_results()
-		'''
-		self.vh.set("{:.2f}".format(self.vhelio[0])+u" \u00B1 "+"{:.2f}".format(self.vhelio[1]))
-		
-		ckms = c.to(u.km/u.s).value
-		self.science.header["DOPCOR"] = (self.vhelio[0] - self.bcv)/(1.+self.bcv/ckms)
-		self.science.header["VHELIO"] = self.vhelio[0]
-		
-		weights = np.array([1.0/w**2. for w in self.rv_data[2,self.keep]])
-		print self.doppler_velocity[self.keep]
-		avg = np.average(self.doppler_velocity[self.keep], 
-						 weights=weights)
-	
-		std1 = np.sqrt(np.sum(weights)/float(len(weights)))
-		print self.science.header["DOPCOR"], avg, std1
-		'''
 
 	def plot_ccf(self, row):
 		row = int(row)
@@ -626,11 +568,11 @@ class Corrections:
 
 	
 	def figure_key_press(self, event):
-		if event.key in "gGkK":
+		if event.key in "gk":
 			x_select = event.xdata #event.artist.get_xdata()[ind]
 			if self.gaussian_point_chosen == None:
 				self.gaussian_point_chosen = x_select
-				print('Point 1 selected for refitting. Please choose Point 2.')
+				print('Ap. {:.0f}: Point 1 selected for refitting at {:.1f}.'.format(int(self.rv_data[0][self.chosen_row]), x_select))
 			else:
 				self.refit_CCF(x_select)
 				self.gaussian_point_chosen = None
@@ -651,18 +593,22 @@ class Corrections:
 		x1 = np.where(self.ccf[self.chosen_row][0]<=lambda1)[0][-1]
 		x2 = np.where(self.ccf[self.chosen_row][0]>=lambda2)[0][0]
 		
-		def gauss(x, sigma, a, mu):
-			g = np.exp(-0.5*((x-mu)/sigma)**2)
-			return a*g
-
 		x = self.ccf[self.chosen_row][0][x1:x2]
 		y = self.ccf[self.chosen_row][1][x1:x2]
+
+		if len(x) < 4:
+			self.gaussian_point_chosen = None
+			print('Error! Try choosing points again.')
+			return
+
+		def gauss(x, sigma, a, mu, b):
+			g = np.exp(-0.5*((x-mu)/sigma)**2)
+			return a*g + b
 		
-		fit = curve_fit(gauss, x, y,
-						p0=(5., np.max(y), np.mean([lambda1,lambda2]))
-						)[0]
+		p0 = (5.0, np.max(y)-np.min(y), np.mean([lambda1,lambda2]), np.min(y))
+		fit = curve_fit(gauss, x, y, p0=p0)[0]
 		
-		s, a, mu = fit
+		s, a, mu, b = fit
 		siga_squared = [(self.ccf[self.chosen_row][1][n+mu] - self.ccf[self.chosen_row][1][mu-n])**2. \
 						for n in range(int(len(self.ccf[self.chosen_row][1])-abs(mu)-1))]
 	
@@ -686,7 +632,8 @@ class Corrections:
 		self.plot_ccf(self.chosen_row)
 		self.rv_average(sig_clip=0)
 		# Update value in table
-		self.rv_table()
+		# TODO: Make this update, not rebuild the table from scratch!
+		#self.rv_table()
 		
 		return
 	
