@@ -330,39 +330,70 @@ class Corrections:
 			return spectrum.header["BCV"]
 		
 		else:
-			try:
-				#import pdb
-				#pdb.set_trace()
-				site = EarthLocation.of_site(spectrum.header["OBSERVAT"]) 
-				
-			except:
-				site = EarthLocation.from_geodetic(lat=spectrum.header["SITELAT"]*u.deg, 
-						lon=spectrum.header["SITELONG"]*u.deg,
-						height=spectrum.header["SITEALT"]*u.m)
-
-			try:
+			site_name = spectrum.header["OBSERVAT"].lower()
+			site = EarthLocation.of_site(site_name)
+			
+			if 'lco' in site_name:
 				RA = spectrum.header["RA-D"]
 				DEC = spectrum.header["DEC-D"]
 				sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
-			except:
+				UT_DATE = spectrum.header['UT-DATE']
+				UT_TIME = spectrum.header["UT-TIME"]
+				ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
+				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+
+			elif 'mcdonald' in site_name:
 				RA = spectrum.header['RA']
 				DEC = spectrum.header['DEC']
 				sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
-
-			# TO-DO: CHANGE TO UT-MID
-			try:
 				UT_DATE = spectrum.header['DATE-OBS']
-			except:
-				UT_DATE = spectrum.header['UT-DATE']
-			
-			try:
 				UT_TIME = spectrum.header["UT"]
-			except TypeError:
-				UT_TIME = spectrum.header["UT-TIME"]
+				ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
+				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+
+			elif 'apo' in site_name:
+				RA = spectrum.header['RA']
+				DEC = spectrum.header['DEC']
+				sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
+				UT = spectrum.header['DATE-OBS']				
+				ut_start = Time(UT, format='isot', scale="utc")
+				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+			
+			#TODO: Generalize this!
+			# -------------------------------------------------------------
+			else:
+				try:
+					site = EarthLocation.of_site(spectrum.header["OBSERVAT"]) 
 				
-			ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
-			ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
-	
+				except:
+					site = EarthLocation.from_geodetic(lat=spectrum.header["SITELAT"]*u.deg, 
+							lon=spectrum.header["SITELONG"]*u.deg,
+							height=spectrum.header["SITEALT"]*u.m)
+
+				try:
+					RA = spectrum.header["RA-D"]
+					DEC = spectrum.header["DEC-D"]
+					sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
+				except:
+					RA = spectrum.header['RA']
+					DEC = spectrum.header['DEC']
+					sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
+
+				# TO-DO: CHANGE TO UT-MID
+				try:
+					UT_DATE = spectrum.header['DATE-OBS']
+				except:
+					UT_DATE = spectrum.header['UT-DATE']
+			
+				try:
+					UT_TIME = spectrum.header["UT"]
+				except TypeError:
+					UT_TIME = spectrum.header["UT-TIME"]
+				
+				ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
+				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+			# -------------------------------------------------------------			
+			
 			barycorr = sc.radial_velocity_correction(obstime=ut_mid, location=site) 
 			bcv = barycorr.to(u.km/u.s).value
 			return bcv
@@ -388,8 +419,6 @@ class Corrections:
 			sig_clip = self.sig_clip
 		rv_data, avg, std, n = rv.rv_average(self.rv_data, sig_clip)
 		
-		#import pdb
-		#pdb.set_trace()
 		for i,r in enumerate(rv_data.T):
 			aploc = np.where(self.rv_data[0]==r[0])[0][0]
 			if r[3] == 1.0:
@@ -590,8 +619,14 @@ class Corrections:
 			lambda2 = x2temp
 		
 		# x chosen by velocity space, must we go back to pixels?
-		x1 = np.where(self.ccf[self.chosen_row][0]<=lambda1)[0][-1]
-		x2 = np.where(self.ccf[self.chosen_row][0]>=lambda2)[0][0]
+		# If the data are decreasing...
+		if self.ccf[self.chosen_row][0][0] > self.ccf[self.chosen_row][0][1]:
+			x1 = np.where(self.ccf[self.chosen_row][0]>=lambda2)[0][-1]
+			x2 = np.where(self.ccf[self.chosen_row][0]<=lambda1)[0][0]
+
+		else:
+			x1 = np.where(self.ccf[self.chosen_row][0]<=lambda1)[0][-1]
+			x2 = np.where(self.ccf[self.chosen_row][0]>=lambda2)[0][0]
 		
 		x = self.ccf[self.chosen_row][0][x1:x2]
 		y = self.ccf[self.chosen_row][1][x1:x2]

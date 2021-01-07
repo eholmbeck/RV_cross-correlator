@@ -1,0 +1,14 @@
+If you have bsddb issues...
+
+Download bsddb3 by:
+
+	brew install berkeley-db4
+	pip install bsddb3
+
+or may have to use
+
+	BERKELEYDB_DIR=$(brew --cellar)/berkeley-db4/<version_number> pip install bsddb3
+
+Then in python2.7/site-packages/bsddb3/__init__.py, line 241: add
+
+	key = key.encode('ascii')
