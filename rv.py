@@ -5,8 +5,6 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import CubicSpline
 from scipy import stats
 
-import matplotlib.pyplot as plt
-
 from astropy.convolution import convolve, Box1DKernel
 import astropy.units as u
 from astropy.constants import c
@@ -23,7 +21,8 @@ def triangle(x, centroid, m1, m2, b1):
 	return np.piecewise(x, [x<centroid],\
             			[lambda x:m1*x + b1 - m1*centroid,\
             			 lambda x:m2*x + b1 - m2*centroid])
-	
+
+
 # ==========================================================
 # ==========================================================
 #template has 61, science has 58
@@ -31,20 +30,19 @@ def triangle(x, centroid, m1, m2, b1):
 def cross_correlate(template, science, aperture, log=None):
 	#ap_difference = science.apertures - template.apertures
 	#template_aperture = aperture
-	science.data[aperture][science.data[aperture]<0.0] = 1.0
+	over_zero = np.where(science.data[aperture] > 0.0)[0]
+	science.data[aperture] = science.data[aperture][over_zero]
 	try:
 		template.wavelength[aperture]
 		science.wavelength[aperture]
-		
 	except:
 		return None
-	
+		
+	science.wavelength[aperture] = science.wavelength[aperture][over_zero]
+
 	# Find over-lapping regions
 	# TODO: Also the possibility that the apertures are mislabelled
 	# -- RESOLVED: Use beam number instead
-	# TODO: What is the apertures are descending (e.g., APO data)?
-	#import pdb
-	#pdb.set_trace()
 	descending = False
 	if science.wavelength[aperture][1] < science.wavelength[aperture][0]:
 		descending = True
@@ -62,16 +60,15 @@ def cross_correlate(template, science, aperture, log=None):
 
 	wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]]
 	scidata = science.data[aperture][overlap_range[0]:overlap_range[1]]
+	
+	
 	low_SNR = False
 	signal = np.average(scidata)
 	SNR = np.sqrt(signal)
 	if SNR<10:
-		print('Detecting low SNR for aperture %s...rebinning.' %int(aperture))
-		scidata = convolve(scidata, Box1DKernel(3))
-		low_SNR = True
-		n_knots = 10
+		knots = 20
 	else:
-		n_knots = 50
+		knots = 40
 	
 	# Take out clear zeros in data at beginning and end of aperture
 	# This is mostly unnecessary
@@ -86,8 +83,7 @@ def cross_correlate(template, science, aperture, log=None):
 		scidata = scidata[:-1]
 		wavelengths = wavelengths[:-1]
 		zeros_flag = scidata[-1]==0.0
-
-
+	
 	#fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
 	#binned_template = fit(wavelengths)
 	if descending:
@@ -103,11 +99,7 @@ def cross_correlate(template, science, aperture, log=None):
 	if len(tempdata) < len(wavelengths):
 		# The template has the larger bin size; rebin the scidata
 		wavelengths = template.wavelength[aperture][overlap_range[0]:overlap_range[1]]
-		if low_SNR:
-			smoothed_data = convolve(science.data[aperture], Box1DKernel(3))
-			fit = interpolate.interp1d(science.wavelength[aperture], smoothed_data)
-		else:
-			fit = interpolate.interp1d(science.wavelength[aperture], science.data[aperture])
+		fit = interpolate.interp1d(science.wavelength[aperture], science.data[aperture])
 		scidata = fit(wavelengths)
 		template_binned = False
 	else:
@@ -116,7 +108,8 @@ def cross_correlate(template, science, aperture, log=None):
 		
 	allx = np.arange(len(wavelengths))
 	# Knot spacing
-	knots = len(allx)/n_knots #Denominator is approx number of knots
+	#n_knots=50
+	#knots = len(allx)/n_knots #Denominator is approx number of knots
 	allx_knots = [sum(allx[i*knots:(i+1)*knots])/float(knots) for i in range(len(allx)/knots)]
 	
 	# Bin the data, then shift the "allx" by half a knot
@@ -124,7 +117,6 @@ def cross_correlate(template, science, aperture, log=None):
 							 for i in range(len(allx_knots))]
 	
 	# Tie the ends down so it doesn't read the maximum as the last point
-	#binned_spline = CubicSpline([allx[0]]+list(allx[::knots][:-1]+knots/2)+[allx[-1]],\
 	binned_spline = CubicSpline([allx[0]]+allx_knots+[allx[-1]],\
 					 [tempdata[0]]+binned_template_knots+[tempdata[-1]])
 	
@@ -139,29 +131,28 @@ def cross_correlate(template, science, aperture, log=None):
 					 [scidata[0]]+science_knots+[scidata[-1]])
 	
 	science_norm = scidata / binned_spline(allx)
+
 	no_nans = list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0])))
 	science_norm = science_norm[no_nans]
 	template_norm = template_norm[no_nans]
 	wavelengths = wavelengths[no_nans]
-	
+		
 	#soln = scipy.signal.correlate(template_norm, science_norm, mode="full")
 	soln = np.correlate(template_norm, science_norm, mode="full")
 
 	x = np.array(range(len(soln)), dtype=float)
-	
+	#p0=[len(soln)/2., soln[len(soln)/2],
+	#	(soln[len(soln)/2]-soln[0])/(len(soln)/2.), 
+	#	(soln[-1]-soln[len(soln)/2])/(len(soln)/2.)
+	#	]
+		
 	fit = curve_fit(triangle, x, soln,\
-					p0=(
-						len(soln)/2., soln[len(soln)/2],
-						(soln[len(soln)/2]-soln[0])/(len(soln)/2.), 
-						(soln[-1]-soln[len(soln)/2])/(len(soln)/2.)
-						)
+					p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
 					)[0]
-	'''
-	p0 = (len(soln)/2., 1.0, -1.0, 0.0)
-
-	'''
 	
-	soln_shrink = soln-triangle(range(len(soln)), *fit)
+	# TRY THIS
+	#soln_shrink = soln -triangle(np.arange(len(soln)), len(soln)/2., 1.0, -1.0, len(soln)/2.)
+	soln_shrink = soln - triangle(range(len(soln)), *fit)
 	# The lag is where the maximum is, minus the length of the CCF
 	# The values in the second array need to be shifted by the lag
 
@@ -185,6 +176,7 @@ def cross_correlate(template, science, aperture, log=None):
 		try:
 			deriv = soln_shrink[solmax+i+1]-soln_shrink[solmax+i]
 		except:
+			import matplotlib.pyplot as plt
 			plt.plot(soln)
 			plt.plot(x, triangle(x, *fit))
 			plt.plot(x, soln_shrink)
@@ -226,7 +218,7 @@ def cross_correlate(template, science, aperture, log=None):
 	#chi2 = stats.chisquare(np.array(center_peak), np.array(gauss(center_x, *fit)))[0]
 	
 	# True peak height over average peak height
-	siga_squared = [(soln_shrink[n+mu] - soln_shrink[mu-n])**2. \
+	siga_squared = [(soln_shrink[n+int(mu)] - soln_shrink[int(mu)-n])**2. \
 					for n in range(int(len(wavelengths)-abs(mu)-1))]
 	
 	r = abs(gauss(mu, *fit)/np.sqrt(np.mean(siga_squared)))

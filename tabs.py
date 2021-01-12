@@ -330,7 +330,11 @@ class Corrections:
 			return spectrum.header["BCV"]
 		
 		else:
-			site_name = spectrum.header["OBSERVAT"].lower()
+			try:
+				site_name = spectrum.header["OBSERVAT"].lower()
+			except:
+				site_name = spectrum.header["SITENAME"].lower()
+			
 			site = EarthLocation.of_site(site_name)
 			
 			if 'lco' in site_name:
@@ -338,7 +342,7 @@ class Corrections:
 				DEC = spectrum.header["DEC-D"]
 				sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
 				UT_DATE = spectrum.header['UT-DATE']
-				UT_TIME = spectrum.header["UT-TIME"]
+				UT_TIME = spectrum.header["UT-START"]
 				ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
 				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
 
@@ -644,7 +648,7 @@ class Corrections:
 		fit = curve_fit(gauss, x, y, p0=p0)[0]
 		
 		s, a, mu, b = fit
-		siga_squared = [(self.ccf[self.chosen_row][1][n+mu] - self.ccf[self.chosen_row][1][mu-n])**2. \
+		siga_squared = [(self.ccf[self.chosen_row][1][n+int(mu)] - self.ccf[self.chosen_row][1][int(mu)-n])**2. \
 						for n in range(int(len(self.ccf[self.chosen_row][1])-abs(mu)-1))]
 	
 		r = abs(gauss(mu, *fit)/np.sqrt(np.mean(siga_squared)))
