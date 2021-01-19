@@ -41,12 +41,39 @@ def cross_correlate(template, science, aperture, log=None):
 	science.wavelength[aperture] = science.wavelength[aperture][over_zero]
 
 	# Find over-lapping regions
-	# TODO: Also the possibility that the apertures are mislabelled
-	# -- RESOLVED: Use beam number instead
+	# First, flip the data if necessary
 	descending = False
+	
+	# If the science is descending and the template is ascending
 	if science.wavelength[aperture][1] < science.wavelength[aperture][0]:
+		if template.wavelength[aperture][1] > template.wavelength[aperture][0]:
+			rev_arr = template.wavelength[aperture][::-1]
+			template.wavelength[aperture] = rev_arr
+			rev_arr = template.data[aperture][::-1]
+			template.data[aperture] = rev_arr
 		descending = True
 	
+	# If the science is ascending and the template is descending
+	elif template.wavelength[aperture][1] < template.wavelength[aperture][0]:
+		rev_arr = template.wavelength[aperture][::-1]
+		template.wavelength[aperture] = rev_arr
+		rev_arr = template.data[aperture][::-1]
+		template.data[aperture] = rev_arr
+	'''
+	if template.wavelength[aperture][1] > template.wavelength[aperture][0]:
+		rev_arr = template.wavelength[aperture][::-1]
+		template.wavelength[aperture] = rev_arr
+		rev_arr = template.data[aperture][::-1]
+		template.data[aperture] = rev_arr
+		descending = True
+
+	if science.wavelength[aperture][1] > science.wavelength[aperture][0]:
+		rev_arr = science.wavelength[aperture][::-1]
+		science.wavelength[aperture] = rev_arr
+		rev_arr = science.data[aperture][::-1]
+		science.data[aperture] = rev_arr	
+		descending = True
+	'''
 	if descending:
 		overlap_range = [np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
 							max(template.wavelength[aperture])]))[0][0],
@@ -58,9 +85,9 @@ def cross_correlate(template, science, aperture, log=None):
 						 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
 							max(template.wavelength[aperture])]))[0][-1]]
 
+	
 	wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]]
 	scidata = science.data[aperture][overlap_range[0]:overlap_range[1]]
-	
 	
 	low_SNR = False
 	signal = np.average(scidata)
@@ -86,16 +113,24 @@ def cross_correlate(template, science, aperture, log=None):
 	
 	#fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
 	#binned_template = fit(wavelengths)
+	'''
 	if descending:
 		overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[-1])[0][0],
 						 np.where(template.wavelength[aperture]<=wavelengths[0])[0][-1]]
 	else:
 		overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[0])[0][0],
 						 np.where(template.wavelength[aperture]<=wavelengths[-1])[0][-1]]
-
+	'''
+	if descending:
+		overlap_range = [np.where(template.wavelength[aperture]<=wavelengths[0])[0][0],
+						 np.where(template.wavelength[aperture]>=wavelengths[-1])[0][-1]]
+	else:
+		overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[0])[0][0],
+						 np.where(template.wavelength[aperture]<=wavelengths[-1])[0][-1]]
 
 	tempdata = template.data[aperture][overlap_range[0]:overlap_range[1]]
 	template_binned = True
+	# Rebin to lower dispersion.
 	if len(tempdata) < len(wavelengths):
 		# The template has the larger bin size; rebin the scidata
 		wavelengths = template.wavelength[aperture][overlap_range[0]:overlap_range[1]]
@@ -241,13 +276,14 @@ def cross_correlate(template, science, aperture, log=None):
 	shift = s_centroid*(wavelengths[0]-winterp(abs(centroid)))
 	centroid = abs(centroid)
 	center_wavelength = winterp(centroid)
+	#print aperture, shift, center_wavelength
 	'''
-	if centroid < 0:
-		centroid = abs(centroid)
-		shift = winterp(centroid)-wavelengths[0]
-	else:
-		shift = wavelengths[0]-winterp(centroid)
+	if aperture==105:
+		import pdb
+		pdb.set_trace()
+		
 	'''
+
 	global ckms
 	#RV = ckms*shift/center_wavelength
 	RV = ckms*shift/wavelengths[0]
@@ -327,7 +363,7 @@ def cross_correlate(template, science, aperture, log=None):
 
 
 	velocities = [-((wavelengths[p]/wavelengths[0])-1.0) for p in np.arange(len(wavelengths)-1,-1,-1)]
-	velocities += list(np.array(velocities[::-1][1:])*-1)
+	velocities += list(np.array(velocities[::-1][1:])*-1.0)
 	velocities = ckms*np.array(velocities)
 		
 	# Gaussian x is still in pixelspace.
