@@ -53,25 +53,34 @@ class FITS:
 				else:
 					wavelength[beam] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
 
-			else:
-				coefficients = disp_data[6:]
+			elif dispersion_type == 2:
+				coefficients = disp_data[11:]
 				# Chebyshev
 				# https://iraf.net/irafhelp.php?val=aptrace&help=Help+Page
-				if coefficients[5] == 1:
-					order,xmin,xmax = coefficients[6:9]
+				if coefficients[0] == 1:
+					order,xmin,xmax = coefficients[1:4]
+					xmin -= 1 #since python indexes at 0
+					xmax -= 1
 					x = np.linspace(xmin, xmax, num_pixels)
 					n = (2.0*x - (xmax + xmin)) / (xmax - xmin)
-					z = [0.0]*(2+int(order))
-					z[0] = 1.0
-					z[1] = n
-					for i in range(2, int(order)+2, 2):
-						z[i] = 2.0*n*z[i-1] - z[i-2]
-					z = np.array(z[0:int(order)])
-					c = np.array(coefficients[9:])
+					z = []
+					z.append(1.0)
+					z.append(n)
+					
+					for i in range(2, int(order)):
+						z.append(2.0*n*z[i-1] - z[i-2])
+					
+					z = np.array(z) #[0:int(order)]
+					c = np.array(coefficients[4:])
 					wavelength[beam] = np.sum(c*z)
+					
 				else:
 					print "Function type not yet supported. Poke Erika!"
 					exit()
+			
+			else:
+				print "Log-linear binned not yet supported. Poke Erika to implement this!"
+				exit()
 			
 		aps = list(map(int, wavelength.keys()))
 		self.first_beam = min(aps)
