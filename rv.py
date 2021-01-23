@@ -43,52 +43,22 @@ def cross_correlate(template, science, aperture, log=None):
 
 	# Find over-lapping regions
 	# First, flip the data if necessary
-	descending = True
-	'''
-	# this works
-	# If the science is descending and the template is ascending
-	if science.wavelength[aperture][1] < science.wavelength[aperture][0]:
-		descending = True
-		if template.wavelength[aperture][1] > template.wavelength[aperture][0]:
-			rev_arr = template.wavelength[aperture][::-1]
-			template.wavelength[aperture] = rev_arr
-			rev_arr = template.data[aperture][::-1]
-			template.data[aperture] = rev_arr
-	
-	# If the science is ascending and the template is descending, reverse the template
-	elif template.wavelength[aperture][1] < template.wavelength[aperture][0]:
+	if template.wavelength[aperture][-1] < template.wavelength[aperture][0]:
 		rev_arr = template.wavelength[aperture][::-1]
 		template.wavelength[aperture] = rev_arr
 		rev_arr = template.data[aperture][::-1]
 		template.data[aperture] = rev_arr
 
-	'''
-	# This doesn't??
-	if template.wavelength[aperture][-1] > template.wavelength[aperture][0]:
-		rev_arr = template.wavelength[aperture][::-1]
-		template.wavelength[aperture] = rev_arr
-		rev_arr = template.data[aperture][::-1]
-		template.data[aperture] = rev_arr
-		#descending = True
-
-	if science.wavelength[aperture][-1] > science.wavelength[aperture][0]:
+	if science.wavelength[aperture][-1] < science.wavelength[aperture][0]:
 		rev_arr = science.wavelength[aperture][::-1]
 		science.wavelength[aperture] = rev_arr
 		rev_arr = science.data[aperture][::-1]
 		science.data[aperture] = rev_arr
-		#descending = True
 	
-	
-	if descending:
-		overlap_range = [np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
-							max(template.wavelength[aperture])]))[0][0],
-						 np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
-							min(template.wavelength[aperture])]))[0][-1]]
-	else:
-		overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
-							min(template.wavelength[aperture])]))[0][0],
-						 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
-							max(template.wavelength[aperture])]))[0][-1]]
+	overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
+						min(template.wavelength[aperture])]))[0][0],
+					 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
+						max(template.wavelength[aperture])]))[0][-1]]
 
 	try:
 		wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]+1]
@@ -102,9 +72,9 @@ def cross_correlate(template, science, aperture, log=None):
 	signal = np.average(scidata)
 	SNR = np.sqrt(signal)
 	if SNR<10:
-		knots = 20
+		n_knots = 20
 	else:
-		knots = 40
+		n_knots = 40
 	
 	# Take out clear zeros in data at beginning and end of aperture
 	# This is mostly unnecessary
@@ -121,13 +91,8 @@ def cross_correlate(template, science, aperture, log=None):
 		zeros_flag = scidata[-1]==0.0
 	
 	
-	if descending:
-		overlap_range = [np.where(template.wavelength[aperture]>=wavelengths[0])[0][-1],
-						 np.where(template.wavelength[aperture]<=wavelengths[-1])[0][0]]
-	
-	else:
-		overlap_range = [np.where(template.wavelength[aperture]<=wavelengths[0])[0][-1],
-						 np.where(template.wavelength[aperture]>=wavelengths[-1])[0][0]]
+	overlap_range = [np.where(template.wavelength[aperture]<=wavelengths[0])[0][-1],
+					 np.where(template.wavelength[aperture]>=wavelengths[-1])[0][0]]
 
 	# This will cut off one at the end since python doesn't include the last index
 	# This will catch the case the the overlap_range extends to the last element
@@ -143,7 +108,7 @@ def cross_correlate(template, science, aperture, log=None):
 					   template.wavelength[aperture][overlap_range[1]]) / \
 					   float(len(tempdata)))
 	
-	# Rebin the science
+	# If the template has lower dispersion, use that wavelength range
 	global ckms
 
 	if dw_science < dw_template:
@@ -159,11 +124,7 @@ def cross_correlate(template, science, aperture, log=None):
 			tempdata = template.data[aperture][overlap_range[0]:-1]
 			wavelengths = template.wavelength[aperture][overlap_range[0]:-1]
 
-	'''		
-	else:
-		fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
-		tempdata = fit(wavelengths)
-	'''
+	# Use new wavelengths
 	dv_average = ckms* (np.power(wavelengths[-1]/wavelengths[0], 1.0/float(len(wavelengths))) - 1.0)
 
 	new_wavelengths = [wavelengths[0]]
@@ -174,18 +135,17 @@ def cross_correlate(template, science, aperture, log=None):
 	
 	fit = interpolate.interp1d(science.wavelength[aperture], science.data[aperture])
 	scidata = fit(new_wavelengths)
+
 	fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
 	tempdata = fit(new_wavelengths)
 
-	
+
 	allx = np.arange(len(new_wavelengths))
-	# Knot spacing
-	n_knots=40
 	knots = len(allx)/n_knots #Denominator is approx number of knots
 	#allx_knots = [knots/2. + np.mean(allx[i*knots:(i+1)*knots]) for i in range(len(allx)/knots)]
 	allx_knots = [np.mean(allx[i*knots:(i+1)*knots+1]) for i in range((len(allx)-1)/knots)]
-	# Trim off the last if they aren't associated with a knot.
-	
+
+	# Trim off the last if they aren't associated with a knot.	
 	trim = abs(len(allx)%len(allx_knots) -1)
 	if trim != 0:
 		allx = allx[0:-trim]
@@ -327,54 +287,17 @@ def cross_correlate(template, science, aperture, log=None):
 
 	# winterp(centroid) asks where the centroid is in wavelength space
 	shift = s_centroid*(wavelengths[0]-winterp(abs(centroid)))
-	#centroid = abs(centroid)
+	centroid = abs(centroid)
 		
-	'''
-	total_shift = []
-	for i,w in enumerate(wavelengths):
-		try:
-			wrest = winterp(float(i)-centroid)
-			dw = -1.0*(w-wrest)/wrest
-			total_shift.append(ckms*dw)
-		except:
-			continue
-	
-	RV = sum(total_shift)/float(len(total_shift))
-	'''
-	#RV = ckms*shift/center_wavelength
 	RV = ckms*shift/wavelengths[0]
 	
 	error = []
 	
-	total_high = []
-	for i,w in enumerate(wavelengths):
-		try:
-			dw = (w - winterp(float(i)-(centroid+sigma)))/w
-			total_high.append(ckms*dw)
-		except:
-			continue
-
-	high = abs(sum(total_high)/float(len(total_high)))
-	error.append(abs(high-abs(RV)))
-
-	total_low = []
-	for i,w in enumerate(wavelengths):
-		try:
-			dw = (w - winterp(float(i)-(centroid-sigma)))/w
-			total_low.append(ckms*dw)
-		except:
-			continue
-
-	low = abs(sum(total_low)/float(len(total_low)))
-	error.append(abs(low-abs(RV)))
-	
-	'''
 	try:
 		# Convert centroid pixel+sigma to wavelength
 		high = winterp(centroid+sigma)
 		# Then shift 
 		high_shift = abs(wavelengths[0] - high)
-		print centroid, sigma, wavelengths[0], winterp(centroid+sigma)
 		error.append(abs((ckms*high_shift/wavelengths[0])-RV))
 	except:
 		pass
@@ -385,7 +308,6 @@ def cross_correlate(template, science, aperture, log=None):
 		error.append(abs(RV-ckms*low_shift/wavelengths[0]))
 	except:
 		pass
-	'''
 
 	error = np.average(error)
 	
