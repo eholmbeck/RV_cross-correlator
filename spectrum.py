@@ -70,7 +70,7 @@ class FITS:
 					for i in range(2, int(order)):
 						z.append(2.0*n*z[i-1] - z[i-2])
 					
-					z = np.array(z) #[0:int(order)]
+					z = np.array(z)
 					c = np.array(coefficients[4:])
 					wavelength[beam] = np.sum(c*z)
 					
