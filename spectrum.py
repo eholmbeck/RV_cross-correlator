@@ -64,7 +64,7 @@ class FITS:
 					x = np.linspace(xmin, xmax, num_pixels)
 					n = (2.0*x - (xmax + xmin)) / (xmax - xmin)
 					z = []
-					z.append(1.0)
+					z.append([1.0]*int(num_pixels))
 					z.append(n)
 					
 					for i in range(2, int(order)):
@@ -72,7 +72,7 @@ class FITS:
 					
 					z = np.array(z)
 					c = np.array(coefficients[4:])
-					wavelength[beam] = np.sum(c*z)
+					wavelength[beam] = np.dot(c,z)
 					
 				else:
 					print "Function type not yet supported. Poke Erika!"

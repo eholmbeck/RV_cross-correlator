@@ -28,17 +28,19 @@ def triangle(x, centroid, m1, m2, b1):
 #template has 61, science has 58
 
 def cross_correlate(template, science, aperture, log=None):
-	#ap_difference = science.apertures - template.apertures
-	#template_aperture = aperture
-	over_zero = np.where(science.data[aperture] > 0.0)[0]
-	science.data[aperture] = science.data[aperture][over_zero]
-	
 	try:
 		template.wavelength[aperture]
 		science.wavelength[aperture]
 	except:
 		return None
-		
+
+	over_zero = np.where(science.data[aperture] > 0.0)[0]
+	science.data[aperture] = science.data[aperture][over_zero]
+
+	# Just in case the aperture turns out to be full of zeros. Sometimes this happens
+	if len(science.data[aperture]) == 0:
+		return None
+			
 	science.wavelength[aperture] = science.wavelength[aperture][over_zero]
 
 	# Find over-lapping regions
@@ -48,13 +50,13 @@ def cross_correlate(template, science, aperture, log=None):
 		template.wavelength[aperture] = rev_arr
 		rev_arr = template.data[aperture][::-1]
 		template.data[aperture] = rev_arr
-
+	
 	if science.wavelength[aperture][-1] < science.wavelength[aperture][0]:
 		rev_arr = science.wavelength[aperture][::-1]
 		science.wavelength[aperture] = rev_arr
 		rev_arr = science.data[aperture][::-1]
 		science.data[aperture] = rev_arr
-	
+
 	overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
 						min(template.wavelength[aperture])]))[0][0],
 					 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
@@ -151,6 +153,7 @@ def cross_correlate(template, science, aperture, log=None):
 		allx = allx[0:-trim]
 		tempdata = tempdata[0:-trim]
 		scidata = scidata[0:-trim]
+		new_wavelengths = new_wavelengths[0:-trim]
 	
 	
 	# Bin the data, then shift the "allx" by half a knot
@@ -175,11 +178,15 @@ def cross_correlate(template, science, aperture, log=None):
 	
 	science_norm = scidata / binned_spline(allx)
 	
+	# TODO: Make sure the wavelengths are handled right after the CCF.
+	'''
 	no_nans = list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0])))
 	science_norm = science_norm[no_nans]
 	template_norm = template_norm[no_nans]
 	wavelengths = new_wavelengths[no_nans]
-		
+	'''
+	wavelengths = new_wavelengths
+	
 	#soln = scipy.signal.correlate(template_norm, science_norm, mode="full")
 	soln = np.correlate(template_norm, science_norm, mode="full")
 	
@@ -199,11 +206,6 @@ def cross_correlate(template, science, aperture, log=None):
 	# Center it so that negative and positive correspond to pixel shifts
 	# Have to add one since it goes from -(N-1) to 0 to +(N-1)
 	# solmax is the location in the CCF of the maximum
-	
-	ccf_wavelengths = list(wavelengths-wavelengths[0])
-	for w in wavelengths[1:]:
-		ccf_wavelengths.insert(0,-1.*(w-wavelengths[0]))
-
 	xmax = float(solmax) - float(len(science_norm) - 1.0)
 	
 	# r is the normalized centroid
@@ -278,37 +280,18 @@ def cross_correlate(template, science, aperture, log=None):
 	# There is an error here about "above interp range"
 	centroid = xmax+mu
 	
-	# converts pixel location to wavelength
-	winterp = interpolate.interp1d(range(len(wavelengths)), wavelengths)
-	
 	# If the centroid is negative, shift to blue, so the shift
 	# should also be negative.
 	s_centroid = np.sign(centroid)
 
-	# winterp(centroid) asks where the centroid is in wavelength space
-	shift = s_centroid*(wavelengths[0]-winterp(abs(centroid)))
-	centroid = abs(centroid)
-		
-	RV = ckms*shift/wavelengths[0]
-	
+	RV = -dv_average*centroid
 	error = []
+	try:
+		error.append(dv_average*(centroid+sigma)-RV)
+		error.append(RV-dv_average*(centroid-sigma))
+	except:
+		pass
 	
-	try:
-		# Convert centroid pixel+sigma to wavelength
-		high = winterp(centroid+sigma)
-		# Then shift 
-		high_shift = abs(wavelengths[0] - high)
-		error.append(abs((ckms*high_shift/wavelengths[0])-RV))
-	except:
-		pass
-
-	try:
-		low = winterp(centroid-sigma)
-		low_shift = abs(wavelengths[0] - low)
-		error.append(abs(RV-ckms*low_shift/wavelengths[0]))
-	except:
-		pass
-
 	error = np.average(error)
 	
 	if log!=None:
@@ -322,12 +305,12 @@ def cross_correlate(template, science, aperture, log=None):
 		log.write('\tT&D r-value : {:>4.2f}\n'.format(r))
 		log.write('\tFWHM        : {:>4.2f}\n'.format(w))
 		log.write('\tsigma (pix) : {:>4.2f}\n'.format(sigma))
-		log.write('\tshift       : {:>4.2f}\n'.format(shift))
 	
 		log.write('\tDelta RV    : {:4.2f}\n'.format(RV))
 		log.write('\tccf sigma   : {:4.2f}\n\n'.format(error))
 		#log.write('-'*80 + '\n')
-	
+
+	# Plot for debugging	
 	if False:
 		#x = center_x
 		x = np.linspace(center_x[0]+xmax, center_x[-1]+xmax, 50)
@@ -364,6 +347,8 @@ def cross_correlate(template, science, aperture, log=None):
 		plt.show()
 		plt.close()
 	
+	
+	# Could use dv_average here to make this faster
 	velocities = [-((wavelengths[p]/wavelengths[0])-1.0) for p in np.arange(len(wavelengths)-1,-1,-1)]
 	velocities += list(np.array(velocities[::-1][1:])*-1.0)
 	velocities = ckms*np.array(velocities)
@@ -377,8 +362,12 @@ def cross_correlate(template, science, aperture, log=None):
 	
 	ccf = [velocities, soln_shrink, wvfit(x), gauss(xg, *fit)]
 	comparison = [wavelengths, science_norm, template_norm, allx]
+	if error > 1000. or abs(RV) > 1000.:
+		keep = 0
+	else:
+		keep = 1
 	
-	return [aperture, RV, error, 1], ccf, comparison
+	return [aperture, RV, error, keep], ccf, comparison
 
 
 # ==========================================================
