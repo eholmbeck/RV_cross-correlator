@@ -4,11 +4,17 @@ import numpy as np
 from scipy.optimize import curve_fit
 from scipy.interpolate import CubicSpline
 from scipy import stats
+from itertools import compress
 
 from astropy.convolution import convolve, Box1DKernel
 import astropy.units as u
 from astropy.constants import c
 ckms = c.to(u.km/u.s).value
+
+import os
+dir_path = os.path.dirname(os.path.realpath(__file__))
+masks = np.genfromtxt(dir_path+'/.masks')
+
 
 def gauss(x, sigma, a, mu, b):
 	g = np.exp(-0.5*((x-mu)/sigma)**2)
@@ -27,166 +33,61 @@ def triangle(x, centroid, m1, m2, b1):
 # ==========================================================
 #template has 61, science has 58
 
-def cross_correlate(template, science, aperture, log=None):
+def cross_correlate(template, science, aperture, tellurics=False, log=None):
 	try:
 		template.wavelength[aperture]
 		science.wavelength[aperture]
 	except:
-		return None
+		return None,None
 
-	over_zero = np.where(science.data[aperture] > 0.0)[0]
-	science.data[aperture] = science.data[aperture][over_zero]
-
-	# Just in case the aperture turns out to be full of zeros. Sometimes this happens
-	if len(science.data[aperture]) == 0:
-		return None
-			
-	science.wavelength[aperture] = science.wavelength[aperture][over_zero]
-
-	# Find over-lapping regions
-	# First, flip the data if necessary
-	if template.wavelength[aperture][-1] < template.wavelength[aperture][0]:
-		rev_arr = template.wavelength[aperture][::-1]
-		template.wavelength[aperture] = rev_arr
-		rev_arr = template.data[aperture][::-1]
-		template.data[aperture] = rev_arr
+	dv_average,wavelengths, science_norm, template_norm = \
+		clean_and_normalize(science,template, aperture)
 	
-	if science.wavelength[aperture][-1] < science.wavelength[aperture][0]:
-		rev_arr = science.wavelength[aperture][::-1]
-		science.wavelength[aperture] = rev_arr
-		rev_arr = science.data[aperture][::-1]
-		science.data[aperture] = rev_arr
-
-	overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
-						min(template.wavelength[aperture])]))[0][0],
-					 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
-						max(template.wavelength[aperture])]))[0][-1]]
-
-	try:
-		wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]+1]
-		scidata = science.data[aperture][overlap_range[0]:overlap_range[1]+1]
-	except:
-		wavelengths = science.wavelength[aperture][overlap_range[0]:-1]
-		scidata = science.data[aperture][overlap_range[0]:-1]
-
 	
-	low_SNR = False
-	signal = np.average(scidata)
-	SNR = np.sqrt(signal)
-	if SNR<10:
-		n_knots = 20
+	keep = np.array([0]*len(wavelengths))
+	if tellurics:
+		for i,w in enumerate(wavelengths):
+			for low,high in masks:
+				# Allow a little tolerance
+				if low-5.0<=w and w<=high+5.0:
+					keep[i] = 1
+		
+		if sum(keep)!=0:
+			telluric_soln = get_shifts(list(compress(wavelengths,keep)),\
+								   list(compress(science_norm,keep)),\
+								   list(compress(template_norm,keep)),\
+								   aperture,dv_average,log)
+		
+		else:
+			telluric_soln = None
+	
+	else: telluric_soln = None
+
+	keep = (-1*keep)+1
+	'''
+	import matplotlib.pyplot as plt
+	plt.plot(wavelengths, science_norm)
+	plt.plot(list(compress(wavelengths,keep)), list(compress(science_norm,keep)))
+	plt.plot(wavelengths, template_norm)
+	plt.show()
+	'''
+
+	if sum(keep) == 0:
+		soln = None
+
 	else:
-		n_knots = 40
+		soln = get_shifts(list(compress(wavelengths,keep)),\
+						  list(compress(science_norm,keep)),\
+						  list(compress(template_norm,keep)),\
+						  aperture,dv_average,log)
 	
-	# Take out clear zeros in data at beginning and end of aperture
-	# This is mostly unnecessary
-	zeros_flag = scidata[0]==0.0
-	while zeros_flag:
-		scidata = scidata[1:]
-		wavelengths = wavelengths[1:]
-		zeros_flag = scidata[0]==0.0
-	
-	zeros_flag = scidata[-1]==0.0
-	while zeros_flag:
-		scidata = scidata[:-1]
-		wavelengths = wavelengths[:-1]
-		zeros_flag = scidata[-1]==0.0
-	
-	
-	overlap_range = [np.where(template.wavelength[aperture]<=wavelengths[0])[0][-1],
-					 np.where(template.wavelength[aperture]>=wavelengths[-1])[0][0]]
+	return soln,telluric_soln
 
-	# This will cut off one at the end since python doesn't include the last index
-	# This will catch the case the the overlap_range extends to the last element
-	try:
-		tempdata = template.data[aperture][overlap_range[0]:overlap_range[1]+1]
-	except:
-		tempdata = template.data[aperture][overlap_range[0]:-1]
-		
-	
-	# Interpolate the one with a smaller wavelength spread.
-	dw_science = abs((wavelengths[-1]-wavelengths[0])/float(len(wavelengths)))
-	dw_template = abs((template.wavelength[aperture][overlap_range[0]] - \
-					   template.wavelength[aperture][overlap_range[1]]) / \
-					   float(len(tempdata)))
-	
-	# If the template has lower dispersion, use that wavelength range
-	global ckms
+# ==========================================================
+# ==========================================================
 
-	if dw_science < dw_template:
-		if wavelengths[0] != template.wavelength[aperture][overlap_range[0]]:
-			overlap_range[0] += 1
-		if wavelengths[-1] != template.wavelength[aperture][overlap_range[1]]:
-			overlap_range[1] -= 1
-		
-		try:
-			tempdata = template.data[aperture][overlap_range[0]:overlap_range[1]+1]
-			wavelengths = template.wavelength[aperture][overlap_range[0]:overlap_range[1]+1]
-		except:
-			tempdata = template.data[aperture][overlap_range[0]:-1]
-			wavelengths = template.wavelength[aperture][overlap_range[0]:-1]
-
-	# Use new wavelengths
-	dv_average = ckms* (np.power(wavelengths[-1]/wavelengths[0], 1.0/float(len(wavelengths))) - 1.0)
-
-	new_wavelengths = [wavelengths[0]]
-	for i in range(1,len(wavelengths)):
-		new_wavelengths.append(new_wavelengths[i-1]*dv_average/ckms + new_wavelengths[i-1])
-	
-	new_wavelengths = np.array(new_wavelengths)
-	
-	fit = interpolate.interp1d(science.wavelength[aperture], science.data[aperture])
-	scidata = fit(new_wavelengths)
-
-	fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
-	tempdata = fit(new_wavelengths)
-
-
-	allx = np.arange(len(new_wavelengths))
-	knots = len(allx)/n_knots #Denominator is approx number of knots
-	#allx_knots = [knots/2. + np.mean(allx[i*knots:(i+1)*knots]) for i in range(len(allx)/knots)]
-	allx_knots = [np.mean(allx[i*knots:(i+1)*knots+1]) for i in range((len(allx)-1)/knots)]
-
-	# Trim off the last if they aren't associated with a knot.	
-	trim = abs(len(allx)%len(allx_knots) -1)
-	if trim != 0:
-		allx = allx[0:-trim]
-		tempdata = tempdata[0:-trim]
-		scidata = scidata[0:-trim]
-		new_wavelengths = new_wavelengths[0:-trim]
-	
-	
-	# Bin the data, then shift the "allx" by half a knot
-	binned_template_knots = [np.mean(tempdata[i*knots:(i+1)*knots+1]) \
-							 for i in range(len(allx_knots))]
-							 #for i in range(len(tempdata)/knots)]
-	
-	# Tie the ends down so it doesn't read the maximum as the last point
-	binned_spline = CubicSpline([allx[0]]+allx_knots+[allx[-1]],\
-					 [tempdata[0]]+binned_template_knots+[tempdata[-1]])
-	
-	template_norm = tempdata / binned_spline(allx)
-	
-	# Repeat for the science spectrum
-	science_knots = [np.mean(scidata[i*knots:(i+1)*knots]+1) \
-					 for i in range(len(allx_knots))]
-					 #for i in range(len(scidata)/knots)]
-					 
-	# Tie the ends down so it doesn't read the maximum as the last point
-	binned_spline = CubicSpline([allx[0]]+allx_knots+[allx[-1]],\
-					 [scidata[0]]+science_knots+[scidata[-1]])
-	
-	science_norm = scidata / binned_spline(allx)
-	
-	# TODO: Make sure the wavelengths are handled right after the CCF.
-	'''
-	no_nans = list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0])))
-	science_norm = science_norm[no_nans]
-	template_norm = template_norm[no_nans]
-	wavelengths = new_wavelengths[no_nans]
-	'''
-	wavelengths = new_wavelengths
-	
+def get_shifts(wavelengths,science_norm,template_norm,\
+			   aperture,dv_average,log=None):
 	#soln = scipy.signal.correlate(template_norm, science_norm, mode="full")
 	soln = np.correlate(template_norm, science_norm, mode="full")
 	
@@ -349,31 +250,195 @@ def cross_correlate(template, science, aperture, log=None):
 	
 	
 	# Could use dv_average here to make this faster
+	'''
 	velocities = [-((wavelengths[p]/wavelengths[0])-1.0) for p in np.arange(len(wavelengths)-1,-1,-1)]
 	velocities += list(np.array(velocities[::-1][1:])*-1.0)
 	velocities = ckms*np.array(velocities)
-		
+	'''
+	velocities = [-((w/wavelengths[0])-1.0) for w in wavelengths[::-1]]
+	velocities += list(np.array(velocities[::-1][1:])*-1.0)
+	velocities = ckms*np.array(velocities)
+	
 	# Gaussian x is still in pixelspace.
 	wvfit = interpolate.interp1d(range(1-len(wavelengths),len(wavelengths)),\
 							   velocities)
 	
-	x = np.linspace(center_x[0]+xmax, center_x[-1]+xmax, 50)
-	xg= np.linspace(center_x[0], center_x[-1], 50)
+	x = np.linspace(max([1-len(wavelengths),center_x[0]+xmax]), \
+					min([len(wavelengths), center_x[-1]+xmax]), 50)
+	xg = np.linspace(center_x[0], center_x[-1], 50)
 	
 	ccf = [velocities, soln_shrink, wvfit(x), gauss(xg, *fit)]
-	comparison = [wavelengths, science_norm, template_norm, allx]
+		
 	if error > 1000. or abs(RV) > 1000.:
-		keep = 0
+		accept = 0
 	else:
-		keep = 1
+		accept = 1
 	
-	return [aperture, RV, error, keep], ccf, comparison
-
+	return [aperture, RV, error, accept], ccf
 
 # ==========================================================
 # ==========================================================
 
-def rv_by_aperture(template, science, aperture_list):
+def clean_and_normalize(science,template, aperture):
+	over_zero = np.where(science.data[aperture] > 0.0)[0]
+	science.data[aperture] = science.data[aperture][over_zero]
+
+	# Just in case the aperture turns out to be full of zeros. Sometimes this happens
+	if len(science.data[aperture]) == 0:
+		return None
+			
+	science.wavelength[aperture] = science.wavelength[aperture][over_zero]
+
+	# Find over-lapping regions
+	# First, flip the data if necessary
+	if template.wavelength[aperture][-1] < template.wavelength[aperture][0]:
+		rev_arr = template.wavelength[aperture][::-1]
+		template.wavelength[aperture] = rev_arr
+		rev_arr = template.data[aperture][::-1]
+		template.data[aperture] = rev_arr
+	
+	if science.wavelength[aperture][-1] < science.wavelength[aperture][0]:
+		rev_arr = science.wavelength[aperture][::-1]
+		science.wavelength[aperture] = rev_arr
+		rev_arr = science.data[aperture][::-1]
+		science.data[aperture] = rev_arr
+
+	overlap_range = [np.where(science.wavelength[aperture]>=max([min(science.wavelength[aperture]),\
+						min(template.wavelength[aperture])]))[0][0],
+					 np.where(science.wavelength[aperture]<=min([max(science.wavelength[aperture]),\
+						max(template.wavelength[aperture])]))[0][-1]]
+
+	try:
+		wavelengths = science.wavelength[aperture][overlap_range[0]:overlap_range[1]+1]
+		scidata = science.data[aperture][overlap_range[0]:overlap_range[1]+1]
+	except:
+		wavelengths = science.wavelength[aperture][overlap_range[0]:-1]
+		scidata = science.data[aperture][overlap_range[0]:-1]
+
+	
+	low_SNR = False
+	signal = np.average(scidata)
+	SNR = np.sqrt(signal)
+	if SNR<10:
+		n_knots = 20
+	else:
+		n_knots = 40
+	
+	# Take out clear zeros in data at beginning and end of aperture
+	# This is mostly unnecessary
+	zeros_flag = scidata[0]==0.0
+	while zeros_flag:
+		scidata = scidata[1:]
+		wavelengths = wavelengths[1:]
+		zeros_flag = scidata[0]==0.0
+	
+	zeros_flag = scidata[-1]==0.0
+	while zeros_flag:
+		scidata = scidata[:-1]
+		wavelengths = wavelengths[:-1]
+		zeros_flag = scidata[-1]==0.0
+	
+	
+	overlap_range = [np.where(template.wavelength[aperture]<=wavelengths[0])[0][-1],
+					 np.where(template.wavelength[aperture]>=wavelengths[-1])[0][0]]
+
+	# This will cut off one at the end since python doesn't include the last index
+	# This will catch the case the the overlap_range extends to the last element
+	try:
+		tempdata = template.data[aperture][overlap_range[0]:overlap_range[1]+1]
+	except:
+		tempdata = template.data[aperture][overlap_range[0]:-1]
+		
+	
+	# Interpolate the one with a smaller wavelength spread.
+	dw_science = abs((wavelengths[-1]-wavelengths[0])/float(len(wavelengths)))
+	dw_template = abs((template.wavelength[aperture][overlap_range[0]] - \
+					   template.wavelength[aperture][overlap_range[1]]) / \
+					   float(len(tempdata)))
+	
+	# If the template has lower dispersion, use that wavelength range
+	global ckms
+
+	if dw_science < dw_template:
+		if wavelengths[0] != template.wavelength[aperture][overlap_range[0]]:
+			overlap_range[0] += 1
+		if wavelengths[-1] != template.wavelength[aperture][overlap_range[1]]:
+			overlap_range[1] -= 1
+		
+		try:
+			tempdata = template.data[aperture][overlap_range[0]:overlap_range[1]+1]
+			wavelengths = template.wavelength[aperture][overlap_range[0]:overlap_range[1]+1]
+		except:
+			tempdata = template.data[aperture][overlap_range[0]:-1]
+			wavelengths = template.wavelength[aperture][overlap_range[0]:-1]
+
+	# Use new wavelengths
+	dv_average = ckms* (np.power(wavelengths[-1]/wavelengths[0], 1.0/float(len(wavelengths))) - 1.0)
+
+	new_wavelengths = [wavelengths[0]]
+	for i in range(1,len(wavelengths)):
+		new_wavelengths.append(new_wavelengths[i-1]*dv_average/ckms + new_wavelengths[i-1])
+	
+	new_wavelengths = np.array(new_wavelengths)
+	
+	fit = interpolate.interp1d(science.wavelength[aperture], science.data[aperture])
+	scidata = fit(new_wavelengths)
+
+	fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
+	tempdata = fit(new_wavelengths)
+
+
+	allx = np.arange(len(new_wavelengths))
+	knots = len(allx)/n_knots #Denominator is approx number of knots
+	#allx_knots = [knots/2. + np.mean(allx[i*knots:(i+1)*knots]) for i in range(len(allx)/knots)]
+	allx_knots = [np.mean(allx[i*knots:(i+1)*knots+1]) for i in range((len(allx)-1)/knots)]
+
+	# Trim off the last if they aren't associated with a knot.	
+	trim = abs(len(allx)%len(allx_knots) -1)
+	if trim != 0:
+		allx = allx[0:-trim]
+		tempdata = tempdata[0:-trim]
+		scidata = scidata[0:-trim]
+		new_wavelengths = new_wavelengths[0:-trim]
+	
+	
+	# Bin the data, then shift the "allx" by half a knot
+	binned_template_knots = [np.mean(tempdata[i*knots:(i+1)*knots+1]) \
+							 for i in range(len(allx_knots))]
+							 #for i in range(len(tempdata)/knots)]
+	
+	# Tie the ends down so it doesn't read the maximum as the last point
+	binned_spline = CubicSpline([allx[0]]+allx_knots+[allx[-1]],\
+					 [tempdata[0]]+binned_template_knots+[tempdata[-1]])
+	
+	template_norm = tempdata / binned_spline(allx)
+	
+	# Repeat for the science spectrum
+	science_knots = [np.mean(scidata[i*knots:(i+1)*knots]+1) \
+					 for i in range(len(allx_knots))]
+					 #for i in range(len(scidata)/knots)]
+					 
+	# Tie the ends down so it doesn't read the maximum as the last point
+	binned_spline = CubicSpline([allx[0]]+allx_knots+[allx[-1]],\
+					 [scidata[0]]+science_knots+[scidata[-1]])
+	
+	science_norm = scidata / binned_spline(allx)
+	
+	# TODO: Make sure the wavelengths are handled right after the CCF.
+	'''
+	no_nans = list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0])))
+	science_norm = science_norm[no_nans]
+	template_norm = template_norm[no_nans]
+	wavelengths = new_wavelengths[no_nans]
+	'''
+	wavelengths = new_wavelengths
+
+	return dv_average,wavelengths, science_norm, template_norm
+		
+# ==========================================================
+# ==========================================================
+
+def rv_by_aperture(template, science, aperture_list, tellurics=None):
 	#aperture_list = range(20)
 	log = open('rv_ccf.log', 'a')
 	
@@ -407,22 +472,30 @@ def rv_by_aperture(template, science, aperture_list):
 	'''	
 	rv_data = []
 	ccf = []
-	comparison = []
+
+	telluric_data = []
+	telluric_ccf = []
+
 	for a in aperture_list:
-		result = cross_correlate(template, science, a, log=log)
+		result,telluric_result = cross_correlate(template, science, a,\
+											tellurics=tellurics, log=log)
 		if result != None:
-		#if RV!=None and error!=None:
 			rv_data.append(result[0])
 			ccf.append(result[1])
-			comparison.append(result[2])
 		else:
 			print 'Not converged for aperture %s' %a
 
+		if telluric_result != None:
+		#if RV!=None and error!=None:
+			telluric_data.append(telluric_result[0])
+			telluric_ccf.append(telluric_result[1])
+
 	rv_data = np.array(rv_data).T
+	telluric_data = np.array(telluric_data).T
 
 	log.close()
 
-	return rv_data, ccf, comparison
+	return [rv_data, ccf], [telluric_data, telluric_ccf]
 	
 	
 # ==========================================================

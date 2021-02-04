@@ -26,13 +26,16 @@ class Session:
 		tab1 = ttk.Frame(self.tab_parent)
 		tab2 = ttk.Frame(self.tab_parent)
 		tab3 = ttk.Frame(self.tab_parent)
+		tab4 = ttk.Frame(self.tab_parent)
 		self.tab_parent.add(tab1, text="Spectra")
 		self.tab_parent.add(tab2, text="Cross-Correlate")
-		self.tab_parent.add(tab3, text="Doppler Shift")
+		self.tab_parent.add(tab3, text="Telluric Offset")
+		self.tab_parent.add(tab4, text="Doppler Shift")
 
 		self.start = Start(root_window, tab1)
-		self.corrections = Corrections(root_window, tab2)
-		self.doppler = Doppler(root_window, tab3)
+		self.tellurics = Tellurics(root_window, tab3)
+		self.corrections = Corrections(root_window, tab2, self.tellurics)
+		self.doppler = Doppler(root_window, tab4)
 
 		menubar_fmt = "{:<30}{:>2}"
 		menubar = tk.Menu(root_window)
@@ -58,6 +61,7 @@ class Session:
 		filename = self.start.open_science_file()
 		#self.start.science = spectrum.FITS(filename)
 		self.corrections.science = self.start.science
+		self.tellurics.science = self.start.science
 		self.doppler.science = self.start.science
 		return filename
 
@@ -88,7 +92,7 @@ class Session:
 			log = open(log_filename, 'a')
 		else:
 			log = open(log_filename, 'w')
-			log.write('Filename\tBCV\tRV\tRV_err\tAps\tAps_RV\tAps_err\n')
+			log.write('Filename\tBCV\tRV\tRV_err\tTelluric offset\tAps\tAps_RV\tAps_err\n')
 		
 		keep = np.where(self.corrections.rv_data[3]==1.)[0]
 		
@@ -96,6 +100,7 @@ class Session:
 		log.write('{:>+.3f}'.format(self.corrections.bcv)+'\t')
 		log.write('{:>+.3f}'.format(self.corrections.vhelio[0])+'\t')
 		log.write('{:>.3f}'.format(self.corrections.vhelio[1])+'\t')
+		log.write('{:>+.3f}'.format(self.tellurics.telluric_shift[0])+'\t')
 		log.write(','.join(['{:>.0f}'.format(v) for v in self.corrections.rv_data[0][keep]])+'\t')
 		log.write(','.join(['{:>.3f}'.format(v) for v in self.corrections.rv_data[1][keep]])+'\t')
 		log.write(','.join(['{:>.3f}'.format(v) for v in self.corrections.rv_data[2][keep]])+'\n')
@@ -262,7 +267,7 @@ class Start:
 
 
 class Corrections:
-	def __init__(self, root_window, window):
+	def __init__(self, root_window, window, telluric_tab):
 		self.window = window
 		self.root_window = root_window
 		self.science = None
@@ -303,6 +308,7 @@ class Corrections:
 		self.new_data_list = None
 		self.vhelio = None
 		self.vm_template = None
+		self.telluric_tab = telluric_tab
 		
 		self.vh = tk.StringVar()
 		self.vhlabel = tk.Label(self.window, text="RV helio:")
@@ -404,10 +410,13 @@ class Corrections:
 
 	
 	def calculate_rvs(self):
-		self.rv_data, self.ccf, self.comparison = rv.rv_by_aperture(\
+		rv_data, telluric_data = rv.rv_by_aperture(\
 										self.template, self.science, \
-										self.science.data.keys())
-		
+										self.science.data.keys(), \
+										tellurics=True)
+		self.rv_data, self.ccf = rv_data
+		self.telluric_tab.set_telluric_data(telluric_data)
+
 		self.correct_rvs()
 		vm = self.vm_template + self.rv_data[1]
 		ckms = c.to(u.km/u.s).value
@@ -677,6 +686,290 @@ class Corrections:
 		return
 	
 	
+# =========================================================================
+# This tab find the Telluric offset
+
+class Tellurics:
+	def __init__(self, root_window, window):
+		self.window = window
+		self.root_window = root_window
+		self.science = None
+		self.template = None
+		self.ccf = []
+		
+		self.fig = Figure()
+		self.rv_ax = self.fig.add_subplot(2,1,1,picker=True)
+		self.ccf_ax = self.fig.add_subplot(2,1,2,picker=True)
+		self.ccf_ax.set_xlabel('Velocity Shift (km/s)')
+		self.gaussian_point_chosen = None
+		self.chosen_row = None
+		
+		self.rv_plot = FigureCanvasTkAgg(self.fig, self.window)
+		self.rv_plot.get_tk_widget().grid(column=0, row=0, rowspan=6)
+
+		toolbar_frame = tk.Frame(self.window)
+		toolbar_frame.grid(column=0,rowspan=6, sticky="w")
+		self.toolbar = NavigationToolbar2Tk(self.rv_plot, toolbar_frame)		
+		
+		self.cbutton = tk.Button(self.window, text="Apply telluric offset", 
+				command=self.telluric_offset)
+		self.cbutton.grid(column=1, row=0, columnspan=2)
+		
+		self.keep = None
+		self.new_data_list = None
+		self.telluric_shift = None
+		
+		self.vh = tk.StringVar()
+		self.vhlabel = tk.Label(self.window, text="Offset:")
+		self.vhlabel.grid(column=1, row=2, sticky="e")
+		self.vhbox = tk.Label(self.window, textvariable=self.vh)
+		self.vhbox.grid(column=2, row=2, sticky="w")
+				
+		self.fig.canvas.mpl_connect('pick_event', self.on_click)
+		self.fig.canvas.mpl_connect('key_press_event', self.figure_key_press)
+		
+		self.rv_table_box = tk.Frame(self.window)
+		self.rv_table_box.grid(row=4, column=1, columnspan=2, sticky="nw")
+		self.rv_checks = None
+
+	
+	def telluric_offset(self):
+		ckms = c.to(u.km/u.s).value
+		self.science.header["DOPCOR"] -= self.telluric_shift[0]
+		self.science.header["VHELIO"] -= self.telluric_shift[0]
+		
+	def set_telluric_data(self, telluric_data):
+		self.telluric_data, self.ccf = telluric_data
+		self.rv_table()
+		self.rv_average(sig_clip=0)
+		
+	
+	def rv_average(self, sig_clip=None):
+		if sig_clip == None:
+			sig_clip = self.sig_clip
+		rv_data, avg, std, n = rv.rv_average(self.telluric_data, sig_clip)
+		
+		for i,r in enumerate(rv_data.T):
+			aploc = np.where(self.telluric_data[0]==r[0])[0][0]
+			if r[3] == 1.0:
+				self.telluric_data[3,aploc] = 1.0
+			else:
+				self.telluric_data[3,aploc] = 0.0
+		
+		for i in range(len(self.telluric_data[3])):
+			self.rv_checks[i].set(int(self.telluric_data[3,i]))
+			
+		self.telluric_shift = [avg,std]
+		self.keep = np.where(self.telluric_data[3]==1)[0]
+		
+		self.vh.set("{:.2f}".format(self.telluric_shift[0])+u" \u00B1 "+"{:.2f}".format(self.telluric_shift[1]))
+		
+		# Add table
+		self.plot_results()
+		return self.rv_ax
+	
+		
+	def plot_results(self):
+		avg,std = self.telluric_shift
+		self.rv_ax.cla()
+		self.rv_ax.text(0.05, 0.95, "%s apertures used" %len(self.keep),\
+					va="top", transform=self.rv_ax.transAxes)
+		
+		self.rv_ax.errorbar(self.telluric_data[0], self.telluric_data[1], yerr=self.telluric_data[2],\
+						ls="", markerfacecolor="white", marker="o", color="C0",\
+						alpha=0.7, picker=5)
+		
+		self.rv_ax.scatter(self.telluric_data[0,self.keep], \
+						self.telluric_data[1,self.keep], color="C0",\
+						marker="o", zorder=4, picker=5)
+		
+		self.rv_ax.plot([self.science.first_beam,self.science.first_beam+self.science.apertures], \
+					 [avg, avg], color="C0", ls="--")
+		
+		self.rv_ax.set_ylim(np.min(self.telluric_data[1,self.keep]-2.5*(self.telluric_data[2,self.keep])),\
+						 np.max(self.telluric_data[1,self.keep]+2.5*(self.telluric_data[2,self.keep]))) 
+
+		self.rv_plot.draw()
+
+		return
+		
+
+	def on_click(self,event):
+		if isinstance(event.artist, Line2D):
+			ind = event.ind[0]
+			
+			x_move = event.artist.get_xdata()[ind]
+			loc = np.where(self.telluric_data[0]==x_move)[0][0]
+			self.plot_ccf(loc)
+		
+		return			
+			
+	def rv_table(self):
+		rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
+		#rv_frame.pack(side="left", fill="both", padx=10, pady=10)
+		rv_frame.grid(row=0, column=0, sticky="news")
+		buttons_frame = tk.Frame(rv_frame, borderwidth=2, relief="groove")
+		buttons_frame.grid(row=1, column=0, sticky="news")
+
+		ROWS = len(self.telluric_data[0])
+		ROWS_DISP = 15
+		
+		ttk.Label(buttons_frame, text="Use").grid(row=0,column=0, sticky="nwe")
+		ttk.Label(buttons_frame, text="Aperture", width=9).grid(row=0,column=1, sticky="new")
+		ttk.Label(buttons_frame, text="RV", width=8).grid(row=0,column=2, sticky="nwe")
+		ttk.Label(buttons_frame, text="RV err", width=8).grid(row=0,column=3, sticky="nwe")
+		
+		self.rv_checks = [tk.IntVar(value=int(r[3])) for r in self.telluric_data.T]
+			
+		for i,r in enumerate(self.telluric_data.T):
+			cb = ttk.Checkbutton(buttons_frame, variable=self.rv_checks[i], 
+								 command=lambda i=i: self.select_aps(i),
+								 takefocus=False)
+			cb.grid(column=0, row=i+1)
+			#self.rv_checks[i].set(int(r[3]))
+			
+			ttk.Label(buttons_frame, text="{:>5.0f}".format(r[0])).grid(column=1, row=i+1, sticky='news')
+			ttk.Label(buttons_frame, text="{:>+6.2f}".format(r[1])).grid(column=2, row=i+1, sticky='news')
+			ttk.Label(buttons_frame, text="{:>6.2f}".format(r[2])).grid(column=3, row=i+1, sticky='news')
+			#boxes[x].append(Checkbutton(master, variable = boxVars[x][y], command = lambda x = x: checkRow(x)))
+			#boxes[x][y].grid(row=x+1, column=y+1)
+		
+		rv_scroll = ttk.Scrollbar(self.rv_table_box, orient="vertical", command=rv_frame.yview)
+		#rv_scroll.pack(side="right", fill="y")
+		rv_scroll.grid(row=0, column=0, sticky="nes")
+		rv_frame.configure(yscrollcommand=rv_scroll.set)#, scrollregion=rv_frame.bbox("all"))
+		
+		rv_frame.create_window((0,0), window=buttons_frame, anchor=tk.NW)
+		buttons_frame.update_idletasks()
+		#bbox = self.rv_table_box.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
+		bbox = rv_frame.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
+
+		# Define the scrollable region as entire canvas with only the desired
+		# number of rows and columns displayed.
+		w, h = bbox[2]-bbox[1], bbox[3]-bbox[1]
+		dw, dh = int((w/4) * 4), int((h/ROWS) * ROWS_DISP)
+		rv_frame.configure(scrollregion=bbox, width=w, height=dh)
+		#buttons_frame.configure(width=2*w, height=dh)
+		#self.rv_table_bow.configure(width=2*w, height=dh)
+		
+		'''
+		rows = 10
+		for i in range(1,rows):
+			for j in range(1,6):
+				self.rv_table_box = tk.Label(self.window)
+				self.rv_table_box.grid(column=2, row=4, stick="news")
+
+				button = Button(rv_frame, padx=7, pady=7, text="[%d,%d]" % (i,j))
+				button.grid(row=i, column=j, sticky='news')
+
+		vsbar = Scrollbar(FMas, orient="vertical", command=self.rv_table_box.yview)
+		vsbar.grid(row=3, column=1)
+		'''
+		return
+	
+	def select_aps(self, row):
+		self.rv_checks[row].set(int(abs(self.telluric_data[3,row]%2-1)))
+		self.telluric_data[3,row] = abs(self.telluric_data[3,row]%2-1)
+		
+		self.keep = np.where(self.telluric_data[3]==1)[0]
+		self.rv_average(sig_clip=0)
+
+	def plot_ccf(self, row):
+		row = int(row)
+		self.ccf_ax.cla()
+		if row != self.chosen_row:
+			self.gaussian_point_chosen = None
+			self.chosen_row = row
+		
+		self.ccf_ax.plot(self.ccf[row][0], self.ccf[row][1], color='gray', lw=1)
+		self.ccf_ax.plot(self.ccf[row][2], self.ccf[row][3], color='C0', ls=':')
+		xmin = min(self.ccf[row][2])
+		xmax = max(self.ccf[row][2])
+		xwidth = xmax-xmin
+		self.ccf_ax.set_xlim(xmin-max(xwidth,80), xmax+max(xwidth,80))
+		#self.ccf_ax.set_xlim(-350, 350)
+		
+		self.ccf_ax.text(0.05, 0.95, "Aperture %s" %int(self.telluric_data[0][row]),\
+					va="top", transform=self.ccf_ax.transAxes)
+		self.ccf_ax.axvline(0, color='k', lw=2, alpha=0.5)
+
+		# Recover old RV
+		self.ccf_ax.axvline(-self.telluric_data[1][row], color='C0', lw=0.8, ls='-')
+
+		self.rv_plot.draw()
+
+	
+	def figure_key_press(self, event):
+		if event.key in "gk":
+			x_select = event.xdata #event.artist.get_xdata()[ind]
+			if self.gaussian_point_chosen == None:
+				self.gaussian_point_chosen = x_select
+				print('Ap. {:.0f}: Point 1 selected for refitting at {:.1f}.'.format(int(self.telluric_data[0][self.chosen_row]), x_select))
+			else:
+				self.refit_CCF(x_select)
+				self.gaussian_point_chosen = None
+		
+		return
+
+	
+	def refit_CCF(self, lambda2):
+		from scipy.optimize import curve_fit
+		
+		lambda1 = self.gaussian_point_chosen
+		if lambda1 > lambda2:
+			x2temp = lambda1
+			lambda1 = lambda2
+			lambda2 = x2temp
+		
+		# x chosen by velocity space, must we go back to pixels?
+		# If the data are decreasing...
+		if self.ccf[self.chosen_row][0][0] > self.ccf[self.chosen_row][0][1]:
+			x1 = np.where(self.ccf[self.chosen_row][0]>=lambda2)[0][-1]
+			x2 = np.where(self.ccf[self.chosen_row][0]<=lambda1)[0][0]
+
+		else:
+			x1 = np.where(self.ccf[self.chosen_row][0]<=lambda1)[0][-1]
+			x2 = np.where(self.ccf[self.chosen_row][0]>=lambda2)[0][0]
+		
+		x = self.ccf[self.chosen_row][0][x1:x2]
+		y = self.ccf[self.chosen_row][1][x1:x2]
+
+		if len(x) < 4:
+			self.gaussian_point_chosen = None
+			print('Error! Try choosing points again.')
+			return
+
+		def gauss(x, sigma, a, mu, b):
+			g = np.exp(-0.5*((x-mu)/sigma)**2)
+			return a*g + b
+		
+		p0 = (5.0, np.max(y)-np.min(y), np.mean([lambda1,lambda2]), np.min(y))
+		fit = curve_fit(gauss, x, y, p0=p0)[0]
+		
+		s, a, mu, b = fit
+		siga_squared = [(self.ccf[self.chosen_row][1][n+int(mu)] - self.ccf[self.chosen_row][1][int(mu)-n])**2. \
+						for n in range(int(len(self.ccf[self.chosen_row][1])-abs(mu)-1))]
+	
+		r = abs(gauss(mu, *fit)/np.sqrt(np.mean(siga_squared)))
+		w = 2.355*abs(s)
+		sigma = (3./8.)*w/(1.+r)
+				
+		self.telluric_data[1,self.chosen_row] = -mu
+		self.telluric_data[2,self.chosen_row] = sigma
+		self.telluric_data[3,self.chosen_row] = 1.0
+		
+		fitx = np.linspace(lambda1,lambda2,50)
+		self.ccf[self.chosen_row][2] = fitx
+		self.ccf[self.chosen_row][3] = gauss(fitx, *fit)
+		
+		self.plot_ccf(self.chosen_row)
+		self.rv_average(sig_clip=0)
+		# Update value in table
+		# TODO: Make this update, not rebuild the table from scratch!
+		#self.rv_table()
+		
+		return
+
 # =========================================================================
 # This tab applies the Doppler shift to the science spectrum, and saves a 
 # new file
