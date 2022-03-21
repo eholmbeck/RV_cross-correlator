@@ -102,7 +102,8 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 
 	# Find maximum in the correlation function
 	# Trim 10% off the front and back just cuz
-	solmax = np.where(soln_shrink==max(soln_shrink[len(soln)/10:-len(soln)/10]))[0][0]
+	try: solmax = np.where(soln_shrink==max(soln_shrink[int(len(soln)/10):-int(len(soln)/10)]))[0][0]
+	except ValueError: return None
 	
 	# Center it so that negative and positive correspond to pixel shifts
 	# Have to add one since it goes from -(N-1) to 0 to +(N-1)
@@ -217,8 +218,8 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 		x = np.linspace(center_x[0]+xmax, center_x[-1]+xmax, 50)
 		y = gauss(np.linspace(center_x[0], center_x[-1], 50), *fit)
 		fig,axes = plt.subplots(2,1)
-		print s_centroid*centroid, mu
-		print gauss(mu, *fit), gauss(0.0, *fit), r, w, sigma, shift, RV
+		print(s_centroid*centroid, mu)
+		print(gauss(mu, *fit), gauss(0.0, *fit), r, w, sigma, shift, RV)
 		
 		axes[0].plot(soln_shrink)
 		axes[0].plot(center_x+solmax,gauss(center_x,*fit))
@@ -391,7 +392,7 @@ def clean_and_normalize(science,template, aperture):
 	allx = np.arange(len(new_wavelengths))
 	knots = len(allx)/n_knots #Denominator is approx number of knots
 	#allx_knots = [knots/2. + np.mean(allx[i*knots:(i+1)*knots]) for i in range(len(allx)/knots)]
-	allx_knots = [np.mean(allx[i*knots:(i+1)*knots+1]) for i in range((len(allx)-1)/knots)]
+	allx_knots = [np.mean(allx[int(i*knots):int((i+1)*knots+1)]) for i in range(int((len(allx)-1)/knots))]
 
 	# Trim off the last if they aren't associated with a knot.	
 	trim = abs(len(allx)%len(allx_knots) -1)
@@ -403,7 +404,7 @@ def clean_and_normalize(science,template, aperture):
 	
 	
 	# Bin the data, then shift the "allx" by half a knot
-	binned_template_knots = [np.mean(tempdata[i*knots:(i+1)*knots+1]) \
+	binned_template_knots = [np.mean(tempdata[int(i*knots):int((i+1)*knots+1)]) \
 							 for i in range(len(allx_knots))]
 							 #for i in range(len(tempdata)/knots)]
 	
@@ -414,7 +415,7 @@ def clean_and_normalize(science,template, aperture):
 	template_norm = tempdata / binned_spline(allx)
 	
 	# Repeat for the science spectrum
-	science_knots = [np.mean(scidata[i*knots:(i+1)*knots]+1) \
+	science_knots = [np.mean(scidata[int(i*knots):int((i+1)*knots)]+1) \
 					 for i in range(len(allx_knots))]
 					 #for i in range(len(scidata)/knots)]
 					 
@@ -483,7 +484,7 @@ def rv_by_aperture(template, science, aperture_list, tellurics=None):
 			rv_data.append(result[0])
 			ccf.append(result[1])
 		else:
-			print 'Not converged for aperture %s' %a
+			print('Not converged for aperture %s' %a)
 
 		if telluric_result != None:
 		#if RV!=None and error!=None:

@@ -45,6 +45,7 @@ class FITS:
 			disp_data = list(map(float,dispersion[ap_num].split()))
 			aperture, beam, dispersion_type, dispersion_start, \
 				mean_dispersion_delta, num_pixels = disp_data[0:6]
+			num_pixels = int(num_pixels)
 			
 			if dispersion_type == 0:
 				if beam == beam_previous:
@@ -64,7 +65,7 @@ class FITS:
 					x = np.linspace(xmin, xmax, num_pixels)
 					n = (2.0*x - (xmax + xmin)) / (xmax - xmin)
 					z = []
-					z.append([1.0]*int(num_pixels))
+					z.append([1.0]*num_pixels)
 					z.append(n)
 					
 					for i in range(2, int(order)):
@@ -75,11 +76,11 @@ class FITS:
 					wavelength[beam] = np.dot(c,z)
 					
 				else:
-					print "Function type not yet supported. Poke Erika!"
+					print("Function type not yet supported. Poke Erika!")
 					exit()
 			
 			else:
-				print "Log-linear binned not yet supported. Poke Erika to implement this!"
+				print("Log-linear binned not yet supported. Poke Erika to implement this!")
 				exit()
 			
 		aps = list(map(int, wavelength.keys()))
