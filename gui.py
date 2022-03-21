@@ -1,8 +1,9 @@
 try:
 	import Tkinter as tk
 except:
+	try: import tkinter as tk
 	# Detecting python3
-	import tk
+	except: import tk
 	
 import matplotlib
 matplotlib.use('TkAgg')

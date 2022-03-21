@@ -1,4 +1,9 @@
-import Tkinter as tk
+try:
+	import Tkinter as tk
+except:
+	import tkinter as tk
+#import Tkinter as tk
+
 from tkinter import ttk
 from tkinter import messagebox
 
@@ -40,18 +45,18 @@ class Session:
 		menubar_fmt = "{:<30}{:>2}"
 		menubar = tk.Menu(root_window)
 		filemenu = tk.Menu(menubar, tearoff=0)
-		filemenu.add_command(label=menubar_fmt.format("New spectrum", u"\u2318".encode('utf-8')+"S"), command=self.open_science)
+		filemenu.add_command(label=menubar_fmt.format("New spectrum", u"\u2318"+"S"), command=self.open_science)
 		root_window.bind('<Command-s>', self.open_science)
-		filemenu.add_command(label=menubar_fmt.format("New template", u"\u2318".encode('utf-8')+"T"), command=self.open_template)
+		filemenu.add_command(label=menubar_fmt.format("New template", u"\u2318"+"T"), command=self.open_template)
 		root_window.bind('<Command-t>', self.open_template)
-		filemenu.add_command(label=menubar_fmt.format("Export shifted spectrum", u"\u2318".encode('utf-8')+"E"), command=self.save_shifted_spectrum)
+		filemenu.add_command(label=menubar_fmt.format("Export shifted spectrum", u"\u2318"+"E"), command=self.save_shifted_spectrum)
 		root_window.bind('<Command-e>', self.save_shifted_spectrum)
 		filemenu.add_separator()
 		filemenu.add_command(label=menubar_fmt.format("Exit",""), command=root_window.quit)
 		menubar.add_cascade(label="File", menu=filemenu)
 		
 		exportmenu = tk.Menu(menubar, tearoff=1)
-		exportmenu.add_command(label=menubar_fmt.format("Export RV", u"\u2318".encode('utf-8')+"E"), command=self.write_log)
+		exportmenu.add_command(label=menubar_fmt.format("Export RV", u"\u2318"+"E"), command=self.write_log)
 		root_window.bind('<Command-e>', self.write_log)
 		menubar.add_cascade(label="Export", menu=exportmenu)
 
@@ -121,8 +126,15 @@ class Start:
 		self.science = None
 		self.template = None
 		
-		self.fig = Figure()
+		ws = self.window.winfo_screenwidth() # width of the screen
+		hs = self.window.winfo_screenheight() # height of the screen
+		dpi = self.window.winfo_fpixels('1i')
+		
+		self.fig = Figure(figsize=(hs*0.8/dpi, ws*0.5*0.8/dpi))
+		#self.fig = Figure()
 		self.ax = self.fig.add_subplot(111)
+		self.template_ax = self.ax.twinx()
+		
 		self.spec_plot = FigureCanvasTkAgg(self.fig, self.window)
 		self.spec_plot.get_tk_widget().grid(column=0, rowspan=4)
 
@@ -153,20 +165,22 @@ class Start:
 	def new_ap(self, *args):
 		self.ap_num = int(self.ap_text.get())
 		self.ax.cla()
+		self.template_ax.cla()
 		self.plot_ap(self.science, self.ap_num, lw=1, zorder=3)
-		self.plot_ap(self.template, self.ap_num, lw=1, zorder=2, color="gray")
+		self.plot_ap(self.template, self.ap_num, ax=self.template_ax, lw=1, zorder=2, color="gray")
 		self.ax.text(0.05, 0.95, "Aperture %s" %int(self.ap_num),\
 					va="top", transform=self.ax.transAxes)
 		self.spec_plot.draw()
 		return
 	
 
-	def plot_ap(self, spectrum, ap_num, **kwargs):
+	def plot_ap(self, spectrum, ap_num, ax=None, **kwargs):
+		if ax is None: ax = self.ax
 		if spectrum != None:
 			try:
-				self.ax.plot(spectrum.wavelength[ap_num], spectrum.data[ap_num], **kwargs)
+				ax.plot(spectrum.wavelength[ap_num], spectrum.data[ap_num], **kwargs)
 			except:
-				print "Aperture %s does not exist!" %ap_num
+				print("Aperture %s does not exist!" %ap_num)
 		return
 
 	def open_science_file(self):
@@ -199,10 +213,10 @@ class Start:
 		if self.template.first_beam > self.science.first_beam:
 			self.ap_num = self.template.first_beam
 			self.science_plot = self.plot_ap(self.science, self.ap_num, lw=1)
-			self.template_plot = self.plot_ap(self.template, self.ap_num, lw=1, color="gray")
+			self.template_plot = self.plot_ap(self.template, self.ap_num, ax=self.template_ax, lw=1, color="gray")
 
 		else:
-			self.template_plot = self.plot_ap(self.template, self.science.first_beam, lw=1, color="gray")
+			self.template_plot = self.plot_ap(self.template, self.science.first_beam, ax=self.template_ax, lw=1, color="gray")
 
 		self.spec_plot.draw()
 		return filename
@@ -217,7 +231,8 @@ class Start:
 		except:
 			answer = messagebox.askyesno(title="Warning", message="Template file has no VHELIO in fits header. Would you like to add one now?")
 			if answer == True:
-				import tkSimpleDialog as simpledialog
+				try: import tkSimpleDialog as simpledialog
+				except ModuleNotFoundError: import tkinter.simpledialog as simpledialog
 				vh = simpledialog.askfloat("", "Enter the heliocentric velocity:",
                                parent=self.root_window)
 
@@ -231,7 +246,7 @@ class Start:
 				fits.writeto(self.template.file_name, data, new_header, overwrite=True)
 				hdul.close()
 		
-		print "Using VHELIO =", "{:.3f}".format(vh), "for template spectrum."	
+		print("Using VHELIO =", "{:.3f}".format(vh), "for template spectrum.")
 		return
 				
 
@@ -242,8 +257,9 @@ class Start:
 		self.ap_num += 1
 		self.ap_text.set(self.ap_num)
 		self.ax.cla()
+		self.template_ax.cla()
 		self.plot_ap(self.science, self.ap_num, lw=1, zorder=3)
-		self.plot_ap(self.template, self.ap_num, lw=1, zorder=2, color="gray")
+		self.plot_ap(self.template, self.ap_num, ax=self.template_ax, lw=1, zorder=2, color="gray")
 		self.ax.text(0.05, 0.95, "Aperture %s" %int(self.ap_num),\
 					va="top", transform=self.ax.transAxes)
 		self.spec_plot.draw()
@@ -255,8 +271,9 @@ class Start:
 		self.ap_num -= 1
 		self.ap_text.set(self.ap_num)
 		self.ax.cla()
+		self.template_ax.cla()
 		self.plot_ap(self.science, self.ap_num, lw=1, zorder=3)
-		self.plot_ap(self.template, self.ap_num, lw=1, zorder=2, color="gray")
+		self.plot_ap(self.template, self.ap_num, ax=self.template_ax, lw=1, zorder=2, color="gray")
 		self.ax.text(0.05, 0.95, "Aperture %s" %int(self.ap_num),\
 					va="top", transform=self.ax.transAxes)
 		self.spec_plot.draw()
@@ -274,7 +291,11 @@ class Corrections:
 		self.template = None
 		self.ccf = []
 		
-		self.fig = Figure()
+		ws = self.window.winfo_screenwidth() # width of the screen
+		hs = self.window.winfo_screenheight() # height of the screen
+		dpi = self.window.winfo_fpixels('1i')
+
+		self.fig = Figure(figsize=(hs*0.8/dpi, ws*0.5*0.8/dpi))
 		self.rv_ax = self.fig.add_subplot(2,1,1,picker=True)
 		self.ccf_ax = self.fig.add_subplot(2,1,2,picker=True)
 		self.ccf_ax.set_xlabel('Velocity Shift (km/s)')
@@ -282,10 +303,10 @@ class Corrections:
 		self.chosen_row = None
 		
 		self.rv_plot = FigureCanvasTkAgg(self.fig, self.window)
-		self.rv_plot.get_tk_widget().grid(column=0, row=0, rowspan=6)
+		self.rv_plot.get_tk_widget().grid(column=0, row=0, rowspan=10)
 
 		toolbar_frame = tk.Frame(self.window)
-		toolbar_frame.grid(column=0,rowspan=6, sticky="w")
+		toolbar_frame.grid(column=0,rowspan=10, sticky="w")
 		self.toolbar = NavigationToolbar2Tk(self.rv_plot, toolbar_frame)		
 		
 		self.cbutton = tk.Button(self.window, text="Run cross-correlation", 
@@ -328,8 +349,10 @@ class Corrections:
 		self.rv_table_box = tk.Frame(self.window)
 		self.rv_table_box.grid(row=4, column=1, columnspan=2, sticky="nw")
 		self.rv_checks = None
-		
-	
+
+		self.rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
+		self.rv_frame.bind_all("<MouseWheel>", self.on_mousewheel)
+
 	def bcv_corr(self, spectrum):
 		if False:
 		#if "BCV" in spectrum.header.keys():
@@ -510,16 +533,19 @@ class Corrections:
 			self.plot_ccf(loc)
 		
 		return			
+
+	def on_mousewheel(self, event):
+		#self.rv_table_box.yview_scroll(-1*(event.delta), "units")
+		self.rv_frame.yview_scroll(-1*(event.delta), "units")
 			
 	def rv_table(self):
-		rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
 		#rv_frame.pack(side="left", fill="both", padx=10, pady=10)
-		rv_frame.grid(row=0, column=0, sticky="news")
-		buttons_frame = tk.Frame(rv_frame, borderwidth=2, relief="groove")
-		buttons_frame.grid(row=1, column=0, sticky="news")
+		self.rv_frame.grid(row=0, column=0, sticky="news")
+		buttons_frame = tk.Frame(self.rv_frame, borderwidth=2, relief="groove")
+		buttons_frame.grid(row=0, column=0, sticky="news")
 
 		ROWS = len(self.rv_data[0])
-		ROWS_DISP = 15
+		ROWS_DISP = 24
 		
 		ttk.Label(buttons_frame, text="Use").grid(row=0,column=0, sticky="nwe")
 		ttk.Label(buttons_frame, text="Aperture", width=9).grid(row=0,column=1, sticky="new")
@@ -540,21 +566,21 @@ class Corrections:
 			#boxes[x].append(Checkbutton(master, variable = boxVars[x][y], command = lambda x = x: checkRow(x)))
 			#boxes[x][y].grid(row=x+1, column=y+1)
 		
-		rv_scroll = ttk.Scrollbar(self.rv_table_box, orient="vertical", command=rv_frame.yview)
+		rv_scroll = ttk.Scrollbar(self.rv_table_box, orient="vertical", command=self.rv_frame.yview)
 		#rv_scroll.pack(side="right", fill="y")
 		rv_scroll.grid(row=0, column=0, sticky="nes")
-		rv_frame.configure(yscrollcommand=rv_scroll.set)#, scrollregion=rv_frame.bbox("all"))
+		self.rv_frame.configure(yscrollcommand=rv_scroll.set)#, scrollregion=rv_frame.bbox("all"))
 		
-		rv_frame.create_window((0,0), window=buttons_frame, anchor=tk.NW)
+		self.rv_frame.create_window((0,0), window=buttons_frame, anchor=tk.NW)
 		buttons_frame.update_idletasks()
 		#bbox = self.rv_table_box.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
-		bbox = rv_frame.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
+		bbox = self.rv_frame.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
 
 		# Define the scrollable region as entire canvas with only the desired
 		# number of rows and columns displayed.
 		w, h = bbox[2]-bbox[1], bbox[3]-bbox[1]
 		dw, dh = int((w/4) * 4), int((h/ROWS) * ROWS_DISP)
-		rv_frame.configure(scrollregion=bbox, width=w, height=dh)
+		self.rv_frame.configure(scrollregion=bbox, width=w, height=dh)
 		#buttons_frame.configure(width=2*w, height=dh)
 		#self.rv_table_bow.configure(width=2*w, height=dh)
 		
@@ -1016,7 +1042,7 @@ class Doppler:
 			try:
 				self.ax.plot(spectrum.wavelength[ap_num], spectrum.data[ap_num], **kwargs)
 			except:
-				print "Aperture %s does not exist!" %ap_num
+				print("Aperture %s does not exist!" %ap_num)
 		return
 
 	def shift_spectrum(self):
@@ -1087,7 +1113,7 @@ class Doppler:
 		
 		fits.writeto(newfile, data, new_header, overwrite=True)
 		
-		print "Saved file to %s" %newfile
+		print("Saved file to %s" %newfile)
 
 	
 	def right(self,event):
