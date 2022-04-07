@@ -12,3 +12,75 @@ or may have to use
 Then in python2.7/site-packages/bsddb3/__init__.py, line 241: add
 
 	key = key.encode('ascii')
+
+
+
+
+
+First some definitions:
+
+    Total Shift: the velocity at which the lines will be zero. This is different from what I call the
+    True Doppler: the sum of the true radial velocity (RV) and the heliocentric motion (HRV)
+    RV: the heliocentric velocity
+    HRV: (the negative of) the heliocentric correction. (I've switched the sign here for visualization purposes.)
+    Telluric: the zero-point velocity offset
+    Delta_RV: the total radial velocity difference between the two spectra at face-value (i.e., the difference in their Total Shift)
+    DT: the difference in the zero-point offset. For this visualization, all differences are spectrum minus template.
+
+
+For one star, the "total shift" would be its true Doppler velocity plus the zero-point offset from calibration. Keep this in mind:
+
+|------------------------------ Total Shift O ------------------------------|
+|-Telluric-||----------------------- True Doppler O ------------------------|
+|-Telluric-||-----------HCV 0----------||--------------RV O-----------------|
+
+
+Cross-correlation between two stars looks something like this (blue is the spectrum in question, red is template, underlines are known values):
+
+|------------------------------- Total Shift O ---------------------------------|1
+|-------------Total Shift T------------||---------------Delta_RV----------------|2
+|-Telluric T-||-----True Doppler T-----||---------------Delta_RV----------------|3
+|-Telluric T-||--HCV T--||----RV T-----||---------------Delta_RV----------------|4
+|----Telluric O----||----------------------True Doppler O-----------------------|5
+|----Telluric O----||---------HCV O----------||--------------RV O---------------|6
+|-Telluric T-||-DT-||---------HCV O----------||--------------RV O---------------|7
+
+So, comparing lines 4 and 7,  RV = Delta_RV + HCVT + RVT - HCVO - DT.
+For spectra that have been pre-shifted, RV=0, meaning that the total_shift is TelluricT + DT + HCV, so when we shift the combined spectra, RV = Delta_RV should be true, which means we want to set HCV=DT=HCVT=0.
+
+|---HCV T---||------RV T-------||-------------------Delta_RV--------------------|4
+|-DT-||------------HCV O-------------||------------------RV O-------------------|7
+
+HCVT + RVT + DRV = DT + HCVO + RVO
+HCVT + RVT + DRV - DT = Doppler
+
+vm_template ~ RVT + HCVT
+Doppler ~ RVO + HCVO - DT
+data = RV(template) + HCV(template) + Delta(RV) - HCV(O)
+vhelio = average of data
+
+      _____________________"vm"_________________________
+RV = [DRV (original_data) + RV(template) - BCV(template)] - DT
+
+original_rv:
+      _____________________"vm"_________________________
+RV = [DRV (original_data) + RV(template) - BCV(template)] - HCVO - DT
+
+
+Combined spectra:
+|---------------------- Total Shift (combined spectrum) -------------------------|1
+|----Telluric O----||------------- True Doppler (combined spectrum) -------------|2
+|----Telluric O----||-------------------------- RV ------------------------------|3
+|-Telluric T-||--------True Doppler T--------||------------Delta_RV--------------|4
+|-Telluric T-||---HCV T---||-------RV T------||------------Delta_RV--------------|5
+|-Telluric T-||-DT-||-------------------------- RV ------------------------------|6
+
+|---HCV T---||-------RV T------||------------Delta_RV--------------|
+|-DT-||-------------------------- RV ------------------------------|
+
+
+
+total_difference, DRV = RV + Doppler(template)
+DRV = RV + HCVT + RVT (+ DT?)
+RV = DRV - HCV - RVT
+

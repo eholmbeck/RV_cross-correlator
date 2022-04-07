@@ -11,7 +11,7 @@ class FITS:
 			self.data = self.hdu[0].data[1]
 		else:
 			self.data = self.hdu[0].data
-		
+
 		self.apertures = self.data.shape[0]
 		self.first_beam = 0
 		self.dispersion = None
@@ -32,9 +32,10 @@ class FITS:
 				line = self.header[key].split('"')
 				for l in line:
 					counter += 1
+					if len(l)==0: continue
 					if counter%2==0:
 						dispersion[int(counter/2)-1]+=l
-		
+						
 				counter -= 1
 		
 		self.dispersion = dispersion
@@ -45,6 +46,9 @@ class FITS:
 			disp_data = list(map(float,dispersion[ap_num].split()))
 			aperture, beam, dispersion_type, dispersion_start, \
 				mean_dispersion_delta, num_pixels = disp_data[0:6]
+			dopshift = disp_data[6]
+			dispersion_start *= (1.0-dopshift)
+			
 			num_pixels = int(num_pixels)
 			
 			if dispersion_type == 0:
@@ -54,6 +58,7 @@ class FITS:
 				else:
 					wavelength[beam] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
 
+				
 			elif dispersion_type == 2:
 				coefficients = disp_data[11:]
 				# Chebyshev
@@ -75,6 +80,10 @@ class FITS:
 					c = np.array(coefficients[4:])
 					wavelength[beam] = np.dot(c,z)
 					
+					wavelength[beam] /= (1.0-dopshift)
+	
+					#6570.60 # What it's reading
+					#6570.97 # What it should be
 				else:
 					print("Function type not yet supported. Poke Erika!")
 					exit()

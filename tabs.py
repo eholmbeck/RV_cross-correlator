@@ -312,15 +312,19 @@ class Corrections:
 		self.cbutton = tk.Button(self.window, text="Run cross-correlation", 
 				command=self.calculate_rvs)
 		self.cbutton.grid(column=1, row=0, columnspan=2)
+
+		self.zbutton = tk.Button(self.window, text="Set HRV to 0", 
+				command=self.set_to_zero)
+		self.zbutton.grid(column=1, row=1, columnspan=2)
 		
 		self.sglabel = tk.Label(self.window, text="Outlier sigma:")
-		self.sglabel.grid(column=1, row=1, sticky="e")
+		self.sglabel.grid(column=1, row=2, sticky="e")
 		self.sg_text = tk.StringVar()
 		self.sg_text.set(0)
 		self.sig_clip = float(self.sg_text.get())
 		
 		self.sg_entry = tk.Entry(self.window, textvariable=self.sg_text, width=8)
-		self.sg_entry.grid(column=2, row=1, sticky="w")
+		self.sg_entry.grid(column=2, row=2, sticky="w")
 		self.new_sg
 		self.sg_entry.bind("<Return>", self.new_sg) 
 				
@@ -333,25 +337,49 @@ class Corrections:
 		
 		self.vh = tk.StringVar()
 		self.vhlabel = tk.Label(self.window, text="RV helio:")
-		self.vhlabel.grid(column=1, row=2, sticky="e")
+		self.vhlabel.grid(column=1, row=3, sticky="e")
 		self.vhbox = tk.Label(self.window, textvariable=self.vh)
-		self.vhbox.grid(column=2, row=2, sticky="w")
+		self.vhbox.grid(column=2, row=3, sticky="w")
 			
 		self.bcv_text = tk.StringVar()
 		self.bcvlabel = tk.Label(self.window, text="BCV:")
-		self.bcvlabel.grid(column=1, row=3, sticky="e")
+		self.bcvlabel.grid(column=1, row=4, sticky="e")
+		'''
 		self.bcvbox = tk.Label(self.window, textvariable=self.bcv_text)
-		self.bcvbox.grid(column=2, row=3, sticky="w")
-		
+		self.bcvbox.grid(column=2, row=4, sticky="w")
+		'''
+		#self.bcv_float = float(self.bcv_text.get())
+		self.bcv_entry = tk.Entry(self.window, textvariable=self.bcv_text, width=8)
+		self.bcv_entry.grid(column=2, row=4, sticky="w")
+		self.bcv_entry.bind("<Return>", self.set_bcv) 
+
+
 		self.fig.canvas.mpl_connect('pick_event', self.on_click)
 		self.fig.canvas.mpl_connect('key_press_event', self.figure_key_press)
 		
 		self.rv_table_box = tk.Frame(self.window)
-		self.rv_table_box.grid(row=4, column=1, columnspan=2, sticky="nw")
+		self.rv_table_box.grid(row=5, column=1, columnspan=2, sticky="nw")
 		self.rv_checks = None
 
 		self.rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
 		self.rv_frame.bind_all("<MouseWheel>", self.on_mousewheel)
+
+
+	def set_bcv(self, event):
+		print(self.bcv)
+		print(np.mean(self.delta_rv[1][self.keep]))
+		self.bcv = float(self.bcv_text.get())
+		self.bcv_text.set("{:.2f}".format(self.bcv))
+
+		vm = self.vm_template + self.delta_rv[1]
+		ckms = c.to(u.km/u.s).value
+		vmvb_c = vm*self.bcv/ckms
+		self.rv_data[1] = vm + self.bcv + vmvb_c
+		
+		#self.rv_plot.focus()
+		self.rv_table()
+		self.rv_average(sig_clip=0)
+		
 
 	def bcv_corr(self, spectrum):
 		if False:
@@ -388,8 +416,8 @@ class Corrections:
 				RA = spectrum.header['RA']
 				DEC = spectrum.header['DEC']
 				sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
-				UT = spectrum.header['DATE-OBS']				
-				ut_start = Time(UT, format='isot', scale="utc")
+				UT = spectrum.header['DATE-OBS']
+				ut_start = Time(UT, format='isot', scale="tai")
 				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
 			
 			#TODO: Generalize this!
@@ -437,18 +465,38 @@ class Corrections:
 										self.template, self.science, \
 										self.science.data.keys(), \
 										tellurics=True)
-		self.rv_data, self.ccf = rv_data
+		self.delta_rv, self.ccf = rv_data
+		self.rv_data = np.copy(self.delta_rv)
+
 		self.telluric_tab.set_telluric_data(telluric_data)
 
 		self.correct_rvs()
-		vm = self.vm_template + self.rv_data[1]
+		
+		vm = self.vm_template + self.delta_rv[1]
 		ckms = c.to(u.km/u.s).value
 		vmvb_c = vm*self.bcv/ckms
 		self.rv_data[1] = vm + self.bcv + vmvb_c
 		
 		self.rv_table()
 		self.rv_average(sig_clip=0)
+	
+	
+	def set_to_zero(self):
+		#self.vhelio = [0.0,0.0]
+		# Set DRV=0; then test.fits (combined) is about vm off from v_helio.
+		self.delta_rv[1] *= 0.0
+		vm = self.vm_template + self.delta_rv[1]
+		ckms = c.to(u.km/u.s).value
+		vmvb_c = vm*self.bcv/ckms
+		#self.rv_data[1] = vm + self.bcv + vmvb_c
+		#self.rv_data[1] = vm + vmvb_c
+		self.rv_data[1] *= 0.0
 		
+		self.rv_table()
+		self.rv_average(sig_clip=0)
+		
+		return
+	
 	
 	def rv_average(self, sig_clip=None):
 		if sig_clip == None:
@@ -457,10 +505,12 @@ class Corrections:
 		
 		for i,r in enumerate(rv_data.T):
 			aploc = np.where(self.rv_data[0]==r[0])[0][0]
-			if r[3] == 1.0:
-				self.rv_data[3,aploc] = 1.0
+			if r[3] == 1:
+				self.rv_data[3,aploc] = 1
+				self.delta_rv[3,aploc] = 1
 			else:
-				self.rv_data[3,aploc] = 0.0
+				self.rv_data[3,aploc] = 0
+				self.delta_rv[3,aploc] = 0
 		
 		for i in range(len(self.rv_data[3])):
 			self.rv_checks[i].set(int(self.rv_data[3,i]))
@@ -470,7 +520,7 @@ class Corrections:
 		
 		ckms = c.to(u.km/u.s).value
 		self.science.header["DOPCOR"] = (self.vhelio[0] - self.bcv)/(1.+self.bcv/ckms)
-		self.science.header["VHELIO"] = self.vhelio[0]		
+		self.science.header["VHELIO"] = self.vhelio[0]
 		self.vh.set("{:.2f}".format(self.vhelio[0])+u" \u00B1 "+"{:.2f}".format(self.vhelio[1]))
 		
 		# Add table
@@ -488,8 +538,6 @@ class Corrections:
 		self.vm_template = (float(self.template.header["VHELIO"]) - bcv_template)/(1.+(bcv_template/ckms))
 		#correction = float(self.template.header["VHELIO"]) - bcv_template \
 		#		+ bcv_science
-		
-		
 		return
 		
 		
@@ -535,7 +583,6 @@ class Corrections:
 		return			
 
 	def on_mousewheel(self, event):
-		#self.rv_table_box.yview_scroll(-1*(event.delta), "units")
 		self.rv_frame.yview_scroll(-1*(event.delta), "units")
 			
 	def rv_table(self):
@@ -581,22 +628,7 @@ class Corrections:
 		w, h = bbox[2]-bbox[1], bbox[3]-bbox[1]
 		dw, dh = int((w/4) * 4), int((h/ROWS) * ROWS_DISP)
 		self.rv_frame.configure(scrollregion=bbox, width=w, height=dh)
-		#buttons_frame.configure(width=2*w, height=dh)
-		#self.rv_table_bow.configure(width=2*w, height=dh)
-		
-		'''
-		rows = 10
-		for i in range(1,rows):
-			for j in range(1,6):
-				self.rv_table_box = tk.Label(self.window)
-				self.rv_table_box.grid(column=2, row=4, stick="news")
-
-				button = Button(rv_frame, padx=7, pady=7, text="[%d,%d]" % (i,j))
-				button.grid(row=i, column=j, sticky='news')
-
-		vsbar = Scrollbar(FMas, orient="vertical", command=self.rv_table_box.yview)
-		vsbar.grid(row=3, column=1)
-		'''
+	
 		return
 	
 	def select_aps(self, row):
@@ -628,10 +660,12 @@ class Corrections:
 		# Recover old RV
 		ckms = c.to(u.km/u.s).value
 		vbc1 = 1.0+(self.bcv/ckms)
-		doppler_shift = self.rv_data[1][row] - self.vm_template*vbc1 - self.bcv
-		self.ccf_ax.axvline(-doppler_shift/vbc1,\
+		#doppler_shift = self.rv_data[1][row] - self.vm_template*vbc1 - self.bcv
+		doppler_shift = self.delta_rv[1][row]
+		#self.ccf_ax.axvline(-doppler_shift/vbc1,\
+		self.ccf_ax.axvline(-doppler_shift,\
 							color='C0', lw=0.8, ls='-')
-
+		
 		self.rv_plot.draw()
 
 	
@@ -698,6 +732,10 @@ class Corrections:
 		self.rv_data[1,self.chosen_row] = -mu + self.vm_template + self.bcv + vmvb_c
 		self.rv_data[2,self.chosen_row] = sigma
 		self.rv_data[3,self.chosen_row] = 1.0
+
+		self.delta_rv[1,self.chosen_row] = -mu
+		self.delta_rv[2,self.chosen_row] = sigma
+		self.delta_rv[3,self.chosen_row] = 1.0
 		
 		fitx = np.linspace(lambda1,lambda2,50)
 		self.ccf[self.chosen_row][2] = fitx
@@ -723,7 +761,11 @@ class Tellurics:
 		self.template = None
 		self.ccf = []
 		
-		self.fig = Figure()
+		ws = self.window.winfo_screenwidth() # width of the screen
+		hs = self.window.winfo_screenheight() # height of the screen
+		dpi = self.window.winfo_fpixels('1i')
+
+		self.fig = Figure(figsize=(hs*0.8/dpi, ws*0.5*0.8/dpi))
 		self.rv_ax = self.fig.add_subplot(2,1,1,picker=True)
 		self.ccf_ax = self.fig.add_subplot(2,1,2,picker=True)
 		self.ccf_ax.set_xlabel('Velocity Shift (km/s)')
@@ -750,6 +792,12 @@ class Tellurics:
 		self.vhlabel.grid(column=1, row=2, sticky="e")
 		self.vhbox = tk.Label(self.window, textvariable=self.vh)
 		self.vhbox.grid(column=2, row=2, sticky="w")
+
+		self.vth = tk.StringVar()
+		self.vthlabel = tk.Label(self.window, text="Total RV:")
+		self.vthlabel.grid(column=1, row=3, sticky="e")
+		self.vthbox = tk.Label(self.window, textvariable=self.vth)
+		self.vthbox.grid(column=2, row=3, sticky="w")
 				
 		self.fig.canvas.mpl_connect('pick_event', self.on_click)
 		self.fig.canvas.mpl_connect('key_press_event', self.figure_key_press)
@@ -758,11 +806,16 @@ class Tellurics:
 		self.rv_table_box.grid(row=4, column=1, columnspan=2, sticky="nw")
 		self.rv_checks = None
 
+		self.rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
+		self.rv_frame.bind_all("<MouseWheel>", self.on_mousewheel)
+
 	
 	def telluric_offset(self):
 		ckms = c.to(u.km/u.s).value
 		self.science.header["DOPCOR"] -= self.telluric_shift[0]
 		self.science.header["VHELIO"] -= self.telluric_shift[0]
+		self.vth.set("{:.2f}".format(self.science.header["VHELIO"]))
+
 		
 	def set_telluric_data(self, telluric_data):
 		self.telluric_data, self.ccf = telluric_data
@@ -789,6 +842,8 @@ class Tellurics:
 		self.keep = np.where(self.telluric_data[3]==1)[0]
 		
 		self.vh.set("{:.2f}".format(self.telluric_shift[0])+u" \u00B1 "+"{:.2f}".format(self.telluric_shift[1]))
+		try: self.vth.set("{:.2f}".format(self.science.header["VHELIO"]  - self.telluric_shift[0]))
+		except: pass
 		
 		# Add table
 		self.plot_results()
@@ -830,15 +885,17 @@ class Tellurics:
 		
 		return			
 			
+	def on_mousewheel(self, event):
+		self.rv_frame.yview_scroll(-1*(event.delta), "units")
+
 	def rv_table(self):
-		rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
-		#rv_frame.pack(side="left", fill="both", padx=10, pady=10)
-		rv_frame.grid(row=0, column=0, sticky="news")
-		buttons_frame = tk.Frame(rv_frame, borderwidth=2, relief="groove")
+		self.rv_frame.grid(row=0, column=0, sticky="news")
+		self.rv_frame.grid(row=0, column=0, sticky="news")
+		buttons_frame = tk.Frame(self.rv_frame, borderwidth=2, relief="groove")
 		buttons_frame.grid(row=1, column=0, sticky="news")
 
 		ROWS = len(self.telluric_data[0])
-		ROWS_DISP = 15
+		ROWS_DISP = 24
 		
 		ttk.Label(buttons_frame, text="Use").grid(row=0,column=0, sticky="nwe")
 		ttk.Label(buttons_frame, text="Aperture", width=9).grid(row=0,column=1, sticky="new")
@@ -860,38 +917,24 @@ class Tellurics:
 			#boxes[x].append(Checkbutton(master, variable = boxVars[x][y], command = lambda x = x: checkRow(x)))
 			#boxes[x][y].grid(row=x+1, column=y+1)
 		
-		rv_scroll = ttk.Scrollbar(self.rv_table_box, orient="vertical", command=rv_frame.yview)
+		rv_scroll = ttk.Scrollbar(self.rv_table_box, orient="vertical", command=self.rv_frame.yview)
 		#rv_scroll.pack(side="right", fill="y")
 		rv_scroll.grid(row=0, column=0, sticky="nes")
-		rv_frame.configure(yscrollcommand=rv_scroll.set)#, scrollregion=rv_frame.bbox("all"))
+		self.rv_frame.configure(yscrollcommand=rv_scroll.set)#, scrollregion=rv_frame.bbox("all"))
 		
-		rv_frame.create_window((0,0), window=buttons_frame, anchor=tk.NW)
+		self.rv_frame.create_window((0,0), window=buttons_frame, anchor=tk.NW)
 		buttons_frame.update_idletasks()
 		#bbox = self.rv_table_box.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
-		bbox = rv_frame.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
+		bbox = self.rv_frame.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
 
 		# Define the scrollable region as entire canvas with only the desired
 		# number of rows and columns displayed.
 		w, h = bbox[2]-bbox[1], bbox[3]-bbox[1]
 		dw, dh = int((w/4) * 4), int((h/ROWS) * ROWS_DISP)
-		rv_frame.configure(scrollregion=bbox, width=w, height=dh)
-		#buttons_frame.configure(width=2*w, height=dh)
-		#self.rv_table_bow.configure(width=2*w, height=dh)
-		
-		'''
-		rows = 10
-		for i in range(1,rows):
-			for j in range(1,6):
-				self.rv_table_box = tk.Label(self.window)
-				self.rv_table_box.grid(column=2, row=4, stick="news")
+		self.rv_frame.configure(scrollregion=bbox, width=w, height=dh)
 
-				button = Button(rv_frame, padx=7, pady=7, text="[%d,%d]" % (i,j))
-				button.grid(row=i, column=j, sticky='news')
-
-		vsbar = Scrollbar(FMas, orient="vertical", command=self.rv_table_box.yview)
-		vsbar.grid(row=3, column=1)
-		'''
 		return
+
 	
 	def select_aps(self, row):
 		self.rv_checks[row].set(int(abs(self.telluric_data[3,row]%2-1)))
@@ -1052,13 +1095,20 @@ class Doppler:
 		# hdu is a numpy array
 		hdul = fits.HDUList()
 		new_header = self.science.header
+		# Check for empty wavelength headers:
+		to_remove = []
+		for key in new_header:
+			if "WAT2" in key: to_remove.append(key)
+
+		for key in to_remove: del new_header[key]
 		
 		try:
 			doppler_velocity = float(self.science.header["DOPCOR"])
 		except:
 			doppler_velocity = float(self.science.header["DOPCOR"].split()[0])
 		
-		dispstring = 'wtype=multispec'
+		#dispstring = 'wtype=multispec'
+		dispstring = 'wtype=linear'
 		#for l,line in enumerate(self.science.dispersion,int(self.science.first_beam)):
 		for l,line in enumerate(self.science.dispersion,1):
 			dispstring += ' spec%s = "' %l
@@ -1092,17 +1142,18 @@ class Doppler:
 					va="top", transform=self.ax.transAxes)
 		self.spec_plot.draw()
 		self.ap_num = self.shifted.first_beam
-
+	
 
 	def save_shifted_spectrum(self):
 		# Create save file button too
 		newfile = self.science.file_name.replace(".fits", "")+"_rv.fits"
+		answer = False
 		answer = messagebox.askyesnocancel(title="Save as...", \
 					message="Save file as %s (Yes), enter a new name (No), or Cancel?" %newfile)
 		
-		if answer == True:
+		if answer:
 			fits.writeto(newfile, data, new_header, overwrite=True)
-		elif answer == False:
+		elif not answer:
 			newfile = asksaveasfilename(filetypes=("Fits files", "*.fits"))
 			# Try this is if the above doesn't work..
 			#import tkSimpleDialog as simpledialog

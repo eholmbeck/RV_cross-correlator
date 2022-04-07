@@ -31,7 +31,6 @@ def triangle(x, centroid, m1, m2, b1):
 
 # ==========================================================
 # ==========================================================
-#template has 61, science has 58
 
 def cross_correlate(template, science, aperture, tellurics=False, log=None):
 	try:
@@ -43,16 +42,17 @@ def cross_correlate(template, science, aperture, tellurics=False, log=None):
 	dv_average,wavelengths, science_norm, template_norm = \
 		clean_and_normalize(science,template, aperture)
 	
-	
 	keep = np.array([0]*len(wavelengths))
 	if tellurics:
 		for i,w in enumerate(wavelengths):
 			for low,high in masks:
 				# Allow a little tolerance
-				if low-5.0<=w and w<=high+5.0:
+				if low-1.0<=w and w<=high+1.0:
 					keep[i] = 1
 		
 		if sum(keep)!=0:
+			#import pdb
+			#pdb.set_trace()
 			telluric_soln = get_shifts(list(compress(wavelengths,keep)),\
 								   list(compress(science_norm,keep)),\
 								   list(compress(template_norm,keep)),\
@@ -88,18 +88,19 @@ def cross_correlate(template, science, aperture, tellurics=False, log=None):
 
 def get_shifts(wavelengths,science_norm,template_norm,\
 			   aperture,dv_average,log=None):
+
 	#soln = scipy.signal.correlate(template_norm, science_norm, mode="full")
 	soln = np.correlate(template_norm, science_norm, mode="full")
 	
 	x = np.array(range(len(soln)), dtype=float)
-		
+	
 	fit = curve_fit(triangle, x, soln,\
 					p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
 					)[0]
 	
 	# TRY THIS
 	soln_shrink = soln - triangle(range(len(soln)), *fit)
-
+	
 	# Find maximum in the correlation function
 	# Trim 10% off the front and back just cuz
 	try: solmax = np.where(soln_shrink==max(soln_shrink[int(len(soln)/10):-int(len(soln)/10)]))[0][0]
@@ -269,7 +270,7 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	xg = np.linspace(center_x[0], center_x[-1], 50)
 	
 	ccf = [velocities, soln_shrink, wvfit(x), gauss(xg, *fit)]
-		
+	
 	if error > 1000. or abs(RV) > 1000.:
 		accept = 0
 	else:
@@ -388,7 +389,7 @@ def clean_and_normalize(science,template, aperture):
 	fit = interpolate.interp1d(template.wavelength[aperture], template.data[aperture])
 	tempdata = fit(new_wavelengths)
 
-
+	
 	allx = np.arange(len(new_wavelengths))
 	knots = len(allx)/n_knots #Denominator is approx number of knots
 	#allx_knots = [knots/2. + np.mean(allx[i*knots:(i+1)*knots]) for i in range(len(allx)/knots)]
@@ -424,7 +425,7 @@ def clean_and_normalize(science,template, aperture):
 					 [scidata[0]]+science_knots+[scidata[-1]])
 	
 	science_norm = scidata / binned_spline(allx)
-	
+		
 	# TODO: Make sure the wavelengths are handled right after the CCF.
 	'''
 	no_nans = list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0])))
@@ -432,9 +433,7 @@ def clean_and_normalize(science,template, aperture):
 	template_norm = template_norm[no_nans]
 	wavelengths = new_wavelengths[no_nans]
 	'''
-	wavelengths = new_wavelengths
-
-	return dv_average,wavelengths, science_norm, template_norm
+	return dv_average, new_wavelengths, science_norm, template_norm
 		
 # ==========================================================
 # ==========================================================
