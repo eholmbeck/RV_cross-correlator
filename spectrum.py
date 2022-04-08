@@ -46,8 +46,10 @@ class FITS:
 			disp_data = list(map(float,dispersion[ap_num].split()))
 			aperture, beam, dispersion_type, dispersion_start, \
 				mean_dispersion_delta, num_pixels = disp_data[0:6]
-			dopshift = disp_data[6]
-			dispersion_start *= (1.0-dopshift)
+
+			self.dopshift = disp_data[6]
+			self.dopcor = np.sqrt((1.0+self.dopshift)/(1.0-self.dopshift))
+			#dispersion_start *= (1.0-dopshift)
 			
 			num_pixels = int(num_pixels)
 			
@@ -55,8 +57,10 @@ class FITS:
 				if beam == beam_previous:
 					beam_previous = beam
 					wavelength[aperture] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+					wavelength[aperture] /= self.dopcor
 				else:
 					wavelength[beam] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+					wavelength[beam] /= self.dopcor
 
 				
 			elif dispersion_type == 2:
@@ -80,7 +84,7 @@ class FITS:
 					c = np.array(coefficients[4:])
 					wavelength[beam] = np.dot(c,z)
 					
-					wavelength[beam] /= (1.0-dopshift)
+					wavelength[beam] /= self.dopcor
 	
 					#6570.60 # What it's reading
 					#6570.97 # What it should be

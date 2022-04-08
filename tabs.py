@@ -366,11 +366,9 @@ class Corrections:
 
 
 	def set_bcv(self, event):
-		print(self.bcv)
-		print(np.mean(self.delta_rv[1][self.keep]))
 		self.bcv = float(self.bcv_text.get())
 		self.bcv_text.set("{:.2f}".format(self.bcv))
-
+		
 		vm = self.vm_template + self.delta_rv[1]
 		ckms = c.to(u.km/u.s).value
 		vmvb_c = vm*self.bcv/ckms
@@ -1103,17 +1101,23 @@ class Doppler:
 		for key in to_remove: del new_header[key]
 		
 		try:
-			doppler_velocity = float(self.science.header["DOPCOR"])
+			doppler_velocity = float(self.science.header["DOPCOR"])/c
 		except:
-			doppler_velocity = float(self.science.header["DOPCOR"].split()[0])
+			doppler_velocity = float(self.science.header["DOPCOR"].split()[0])/c
 		
-		#dispstring = 'wtype=multispec'
-		dispstring = 'wtype=linear'
+		# see https://iraf.net/irafhelp.php?val=dopcor&help=Help+Page
+		one_plus_z_old = self.science.dopcor
+		one_plus_z_add = np.sqrt((1.0+doppler_velocity)/(1.0-doppler_velocity))
+		one_plus_z_new = one_plus_z_old*one_plus_z_add
+		doppler_velocity = (one_plus_z_new**2 - 1)/(one_plus_z_new**2 + 1.0)
+		
+		dispstring = 'wtype=multispec'
+		#dispstring = 'wtype=linear'
 		#for l,line in enumerate(self.science.dispersion,int(self.science.first_beam)):
 		for l,line in enumerate(self.science.dispersion,1):
 			dispstring += ' spec%s = "' %l
 			linedata = line.split()
-			dispstring += " ".join(linedata[0:6]+['{:.13e}'.format(doppler_velocity/c)]+\
+			dispstring += " ".join(linedata[0:6]+['{:.13e}'.format(doppler_velocity)]+\
 								linedata[7:])
 			dispstring += '"'
 		
@@ -1127,7 +1131,7 @@ class Doppler:
 		new_header["WAT2_{:03.0f}".format(wat_counter)] = dispstring[char_counter:]
 		#new_header["WAT3_001"] = 'wtype=linear'
 		#new_header["CTYPE3"] = 'LINEAR'
-		new_header["DOPCOR"] = '{:.2f} all'.format(doppler_velocity)
+		new_header["DOPCOR"] = '{:.2f} all'.format(doppler_velocity*c)
 		
 		newfile = self.science.file_name.replace(".fits", "")+"_rv.fits"
 		#newfile = "temp_rv.fits"
