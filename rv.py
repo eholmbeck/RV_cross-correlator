@@ -94,10 +94,13 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	
 	x = np.array(range(len(soln)), dtype=float)
 	
-	fit = curve_fit(triangle, x, soln,\
+	try: 
+		fit = curve_fit(triangle, x, soln,\
 					p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
 					)[0]
-	
+	except:
+		import pdb
+		pdb.set_trace()
 	# TRY THIS
 	soln_shrink = soln - triangle(range(len(soln)), *fit)
 	
@@ -427,12 +430,12 @@ def clean_and_normalize(science,template, aperture):
 	science_norm = scidata / binned_spline(allx)
 		
 	# TODO: Make sure the wavelengths are handled right after the CCF.
-	'''
-	no_nans = list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0])))
+	
+	no_nans = np.array(list(set(np.where(~np.isnan(template_norm))[0]).intersection(set(np.where(~np.isnan(science_norm))[0]))), dtype=int)
 	science_norm = science_norm[no_nans]
 	template_norm = template_norm[no_nans]
 	wavelengths = new_wavelengths[no_nans]
-	'''
+	
 	return dv_average, new_wavelengths, science_norm, template_norm
 		
 # ==========================================================
@@ -492,6 +495,9 @@ def rv_by_aperture(template, science, aperture_list, tellurics=None):
 
 	rv_data = np.array(rv_data).T
 	telluric_data = np.array(telluric_data).T
+	
+	if len(telluric_data)==0:
+		telluric_data = np.array([[],[],[],[]])
 
 	log.close()
 
@@ -503,6 +509,8 @@ def rv_by_aperture(template, science, aperture_list, tellurics=None):
 
 # array of ap, rv, err
 def rv_average(data_list, sig_clip=2.0):
+	if len(data_list[0])==0: return data_list, np.nan, np.nan, 0
+	
 	median = round(np.median(data_list[1]),4)
 	variances = []
 	num = 0.

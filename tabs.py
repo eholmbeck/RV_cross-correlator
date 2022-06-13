@@ -130,7 +130,7 @@ class Start:
 		hs = self.window.winfo_screenheight() # height of the screen
 		dpi = self.window.winfo_fpixels('1i')
 		
-		self.fig = Figure(figsize=(hs*0.8/dpi, ws*0.5*0.8/dpi))
+		self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
 		#self.fig = Figure()
 		self.ax = self.fig.add_subplot(111)
 		self.template_ax = self.ax.twinx()
@@ -295,7 +295,7 @@ class Corrections:
 		hs = self.window.winfo_screenheight() # height of the screen
 		dpi = self.window.winfo_fpixels('1i')
 
-		self.fig = Figure(figsize=(hs*0.8/dpi, ws*0.5*0.8/dpi))
+		self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
 		self.rv_ax = self.fig.add_subplot(2,1,1,picker=True)
 		self.ccf_ax = self.fig.add_subplot(2,1,2,picker=True)
 		self.ccf_ax.set_xlabel('Velocity Shift (km/s)')
@@ -465,7 +465,7 @@ class Corrections:
 										tellurics=True)
 		self.delta_rv, self.ccf = rv_data
 		self.rv_data = np.copy(self.delta_rv)
-
+		
 		self.telluric_tab.set_telluric_data(telluric_data)
 
 		self.correct_rvs()
@@ -763,7 +763,7 @@ class Tellurics:
 		hs = self.window.winfo_screenheight() # height of the screen
 		dpi = self.window.winfo_fpixels('1i')
 
-		self.fig = Figure(figsize=(hs*0.8/dpi, ws*0.5*0.8/dpi))
+		self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
 		self.rv_ax = self.fig.add_subplot(2,1,1,picker=True)
 		self.ccf_ax = self.fig.add_subplot(2,1,2,picker=True)
 		self.ccf_ax.set_xlabel('Velocity Shift (km/s)')
@@ -817,8 +817,9 @@ class Tellurics:
 		
 	def set_telluric_data(self, telluric_data):
 		self.telluric_data, self.ccf = telluric_data
-		self.rv_table()
-		self.rv_average(sig_clip=0)
+		if len(self.telluric_data[0])!=0:
+			self.rv_table()
+			self.rv_average(sig_clip=0)
 		
 	
 	def rv_average(self, sig_clip=None):
@@ -865,9 +866,12 @@ class Tellurics:
 		self.rv_ax.plot([self.science.first_beam,self.science.first_beam+self.science.apertures], \
 					 [avg, avg], color="C0", ls="--")
 		
-		self.rv_ax.set_ylim(np.min(self.telluric_data[1,self.keep]-2.5*(self.telluric_data[2,self.keep])),\
+		try:
+			self.rv_ax.set_ylim(np.min(self.telluric_data[1,self.keep]-2.5*(self.telluric_data[2,self.keep])),\
 						 np.max(self.telluric_data[1,self.keep]+2.5*(self.telluric_data[2,self.keep]))) 
 
+		except ValueError: pass
+		
 		self.rv_plot.draw()
 
 		return
@@ -892,7 +896,9 @@ class Tellurics:
 		buttons_frame = tk.Frame(self.rv_frame, borderwidth=2, relief="groove")
 		buttons_frame.grid(row=1, column=0, sticky="news")
 
-		ROWS = len(self.telluric_data[0])
+		try: ROWS = len(self.telluric_data[0])
+		except: ROWS=10
+		if ROWS==0: ROWS=10
 		ROWS_DISP = 24
 		
 		ttk.Label(buttons_frame, text="Use").grid(row=0,column=0, sticky="nwe")
@@ -1051,7 +1057,11 @@ class Doppler:
 		self.shifted = None
 		self.vhelio = None
 		
-		self.fig = Figure()
+		ws = self.window.winfo_screenwidth() # width of the screen
+		hs = self.window.winfo_screenheight() # height of the screen
+		dpi = self.window.winfo_fpixels('1i')
+
+		self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
 		self.ax = self.fig.add_subplot(111)
 		self.spec_plot = FigureCanvasTkAgg(self.fig, self.window)
 		self.spec_plot.get_tk_widget().grid(column=0, rowspan=6)
