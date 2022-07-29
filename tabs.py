@@ -459,6 +459,7 @@ class Corrections:
 
 	
 	def calculate_rvs(self):
+		print('Running cross-correlation. This may take a minute...')
 		rv_data, telluric_data = rv.rv_by_aperture(\
 										self.template, self.science, \
 										self.science.data.keys(), \
@@ -645,6 +646,7 @@ class Corrections:
 		
 		self.ccf_ax.plot(self.ccf[row][0], self.ccf[row][1], color='gray', lw=1)
 		self.ccf_ax.plot(self.ccf[row][2], self.ccf[row][3], color='C0', ls=':')
+			
 		xmin = min(self.ccf[row][2])
 		xmax = max(self.ccf[row][2])
 		xwidth = xmax-xmin

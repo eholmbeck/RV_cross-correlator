@@ -11,6 +11,10 @@ import astropy.units as u
 from astropy.constants import c
 ckms = c.to(u.km/u.s).value
 
+# Remove when connected to (good) internet
+from astropy.utils.iers import conf
+conf.auto_max_age = None
+
 import os
 dir_path = os.path.dirname(os.path.realpath(__file__))
 masks = np.genfromtxt(dir_path+'/.masks')
@@ -39,8 +43,12 @@ def cross_correlate(template, science, aperture, tellurics=False, log=None):
 	except:
 		return None,None
 
-	dv_average,wavelengths, science_norm, template_norm = \
-		clean_and_normalize(science,template, aperture)
+	
+	try:
+		dv_average,wavelengths, science_norm, template_norm = \
+			clean_and_normalize(science,template, aperture)
+	except:
+		return None,None
 	
 	keep = np.array([0]*len(wavelengths))
 	if tellurics:
@@ -94,13 +102,10 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	
 	x = np.array(range(len(soln)), dtype=float)
 	
-	try: 
-		fit = curve_fit(triangle, x, soln,\
-					p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
-					)[0]
-	except:
-		import pdb
-		pdb.set_trace()
+	fit = curve_fit(triangle, x, soln,\
+				p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
+				)[0]
+
 	# TRY THIS
 	soln_shrink = soln - triangle(range(len(soln)), *fit)
 	
@@ -120,8 +125,8 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	center_peak = [soln_shrink[solmax]]
 	
 	center_x = [0.0]
+	
 	i = 0
-
 	# only fit the center before it starts oscillating
 	deriv = -1.
 	while deriv <= 0:
@@ -152,21 +157,63 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 		return None
 	
 	
-	center_x = center_x[0:-1]
-	center_peak = center_peak[0:-1]
+	center_x = np.array(center_x)
+	center_peak = np.array(center_peak)
 	
+	best_residual = np.inf
+	
+	params = [0.5, np.max(soln_shrink) - np.min(soln_shrink), 0.0, np.mean([center_peak[0],center_peak[-1]])]
 	try:
-		# Fit the centroid of the correlation peak with a gaussian
-		fit = curve_fit(gauss, center_x, center_peak,\
-						p0=(0.5, np.max(soln_shrink)-np.min(soln_shrink), 0.0, \
-							np.mean([center_peak[0],center_peak[-1]])
-							)
-						)[0]
+		fit = curve_fit(gauss, center_x, center_peak,p0=params)[0]
 	except:
-		#return None, None, None, 0
 		return None
-		
+
 	s, a, mu, b = fit
+	npoints = len(center_x)
+	
+	cenx_keep = center_x
+	cenp_keep = center_peak
+	
+	try: inner_bound_left = np.where(center_x <= mu - np.sqrt(s)/4.0)[0][-1]
+	except IndexError: inner_bound_left = int(0.35*len(center_x))
+	try: outer_bound_left = np.where(center_x <= mu - np.sqrt(3.)*s)[0][-1]
+	except IndexError: outer_bound_left = 0
+
+	try: inner_bound_right = np.where(center_x >= mu + np.sqrt(s)/2.0)[0][0]
+	except IndexError: inner_bound_right = int(0.66*len(center_x))
+	try: outer_bound_right = np.where(center_x >= mu + np.sqrt(3.)*s)[0][0]
+	except IndexError: outer_bound_right = len(center_x)
+
+	def gauss_no_b(x, sigma, a, mu):
+		g = np.exp(-0.5*((x-mu)/sigma)**2)
+		return a*g + b
+
+	for ri in range(inner_bound_right, outer_bound_right):
+		for li in range(outer_bound_left, inner_bound_left):
+			cenx = center_x[li:ri]
+			cenp = center_peak[li:ri]
+			try:
+				fit = curve_fit(gauss_no_b, cenx, cenp, params[:-1])[0]
+			except: continue
+
+			chi2 = np.sum((np.array(gauss(cenx, *fit, b))/cenp)**2)
+			chi2 /= len(cenx)
+			if chi2 < best_residual:
+				cenx_keep = cenx
+				cenp_keep = cenp
+				best_residual = chi2
+				s,a,mu = fit
+
+	try:
+		fit = curve_fit(gauss, cenx_keep, cenp_keep, p0=(s,a,mu,b))[0]
+		s,a,mu,b = fit
+		center_x = cenx_keep
+		center_peak = cenp_keep
+	except:
+		fit = curve_fit(gauss, center_x, center_peak, p0=params)[0]
+		s,a,mu,b = fit
+
+	#if np.isinf(best_residual): return None
 	npoints = len(center_x)
 	#chi2 = stats.chisquare(np.array(center_peak), np.array(gauss(center_x, *fit)))[0]
 	
@@ -218,12 +265,13 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 
 	# Plot for debugging	
 	if False:
+		import matplotlib.pyplot as plt
 		#x = center_x
 		x = np.linspace(center_x[0]+xmax, center_x[-1]+xmax, 50)
 		y = gauss(np.linspace(center_x[0], center_x[-1], 50), *fit)
 		fig,axes = plt.subplots(2,1)
-		print(s_centroid*centroid, mu)
-		print(gauss(mu, *fit), gauss(0.0, *fit), r, w, sigma, shift, RV)
+		#print(s_centroid*centroid, mu)
+		#print(gauss(mu, *fit), gauss(0.0, *fit), r, w, sigma, shift, RV)
 		
 		axes[0].plot(soln_shrink)
 		axes[0].plot(center_x+solmax,gauss(center_x,*fit))
@@ -247,9 +295,12 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 		
 		axes[1].axvline(0, color='gray', lw=0.8, ls='--')
 		#fit(x[np.where(y==max(y))[0][0]])
-		axes[1].axvline(-RV,\
-							color='C0', lw=0.8, ls='-')	
-	
+		axes[1].axvline(xmax, color='C0', lw=0.8, ls='-')	
+		axes[1].axvline(-RV, color='C0', lw=0.8, ls=':')	
+		axes[1].axvline(solmax, color='C0', lw=0.8, ls='--')
+		
+		print(xmax, solmax, mu)	
+		
 		plt.show()
 		plt.close()
 	
@@ -273,7 +324,7 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	xg = np.linspace(center_x[0], center_x[-1], 50)
 	
 	ccf = [velocities, soln_shrink, wvfit(x), gauss(xg, *fit)]
-	
+
 	if error > 1000. or abs(RV) > 1000.:
 		accept = 0
 	else:
@@ -435,8 +486,8 @@ def clean_and_normalize(science,template, aperture):
 	science_norm = science_norm[no_nans]
 	template_norm = template_norm[no_nans]
 	wavelengths = new_wavelengths[no_nans]
-	
-	return dv_average, new_wavelengths, science_norm, template_norm
+
+	return dv_average, wavelengths, science_norm, template_norm
 		
 # ==========================================================
 # ==========================================================
