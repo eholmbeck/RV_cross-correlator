@@ -42,6 +42,7 @@ class FITS:
 		
 		wavelength = {}
 		beam_previous = 1
+		rescale = np.float(np.shape(self.data)[1])
 		for ap_num in range(self.apertures):
 			disp_data = list(map(float,dispersion[ap_num].split()))
 			aperture, beam, dispersion_type, dispersion_start, \
@@ -51,19 +52,24 @@ class FITS:
 			self.dopcor = np.sqrt((1.0+self.dopshift)/(1.0-self.dopshift))
 			#dispersion_start *= (1.0-dopshift)
 			
-			num_pixels = int(num_pixels)
+			#num_pixels = int(num_pixels)
+			# Most of the time, this is just mean_dispersion_delta. Mostly.
+			disp_delta = mean_dispersion_delta * num_pixels / rescale
 			
 			if dispersion_type == 0:
 				if beam == beam_previous:
 					beam_previous = beam
-					wavelength[aperture] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+					#wavelength[aperture] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+					wavelength[aperture] = dispersion_start + np.arange(int(rescale)) * disp_delta
 					wavelength[aperture] /= self.dopcor
 				else:
-					wavelength[beam] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+					#wavelength[beam] = dispersion_start + np.arange(num_pixels) * mean_dispersion_delta
+					wavelength[beam] = dispersion_start + np.arange(int(rescale)) * disp_delta
 					wavelength[beam] /= self.dopcor
 
 				
 			elif dispersion_type == 2:
+				num_pixels = int(num_pixels)
 				coefficients = disp_data[11:]
 				# Chebyshev
 				# https://iraf.net/irafhelp.php?val=aptrace&help=Help+Page
@@ -98,14 +104,16 @@ class FITS:
 			
 		aps = list(map(int, wavelength.keys()))
 		self.first_beam = min(aps)
+		
 		data_copy = self.data
 		self.data = {}
 		#for a in range(self.apertures):
 		#	self.data[a+self.first_beam] = data_copy[a]
 		# Using beam instead of aperture
-		for a in aps:
-			self.data[a] = data_copy[a-self.first_beam]
-
+		for ai,a in enumerate(aps):
+			#try: self.data[a] = data_copy[a-self.first_beam-new_start]
+			self.data[a] = data_copy[ai]
+		
 		return wavelength
 		
 	'''	
@@ -121,3 +129,39 @@ class FITS:
 	
 		return self.apertures[aperture]
 	'''
+
+'''
+def show_spectra(files):
+	import matplotlib.pyplot as plt
+	fig,ax = plt.subplots(1,1, figsize=(9,6))
+
+	beam = 117
+	lines,handles = [[],[]]
+	for i,file in enumerate(files):
+		#if 'comb' in file: file = file.replace('_rv.fits', '.fits')
+		spec = FITS(file)
+		try:
+			dopcor = spec.header['DOPCOR']
+			try: dopcor = float(dopcor)
+			except: dopcor = float(dopcor.split()[0])
+			#print(dopcor, float(spec.header['VHELIO']))
+		except: pass
+	
+		tax = ax.twinx()
+		#if i==len(files)-1:
+		#	tax.plot(spec.wavelength[beam], spec.data[beam], label=file.split('/')[-1], lw=1.5, color='gray'),
+		#else:
+		tax.plot(spec.wavelength[beam], spec.data[beam], label=file.split('/')[-1], lw=0.7, color='C%s' %i),
+
+		l,h = tax.get_legend_handles_labels()
+		lines.append(l[0])
+		handles.append(h[0])
+
+	ax.legend(lines,handles)
+	plt.show()
+	
+
+import glob
+files = glob.glob('/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/*comb_rv.fits')
+show_spectra(files[20:])
+'''

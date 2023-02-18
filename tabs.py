@@ -190,6 +190,7 @@ class Start:
 			pass
 
 		filename = askopenfilename(filetypes=(("fits files", "*.fits"), ("All files", "*,*")))
+		print('Loading file: ', filename)
 		self.science = spectrum.FITS(filename)
 		self.ap_num = self.science.first_beam
 		self.science_plot = self.plot_ap(self.science, self.science.first_beam, lw=1)
@@ -397,7 +398,8 @@ class Corrections:
 				DEC = spectrum.header["DEC-D"]
 				sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
 				UT_DATE = spectrum.header['UT-DATE']
-				UT_TIME = spectrum.header["UT-START"]
+				try: UT_TIME = spectrum.header["UT-START"]
+				except KeyError: UT_TIME = spectrum.header["UT-TIME"]
 				ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
 				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
 
@@ -485,10 +487,13 @@ class Corrections:
 		# Set DRV=0; then test.fits (combined) is about vm off from v_helio.
 		self.delta_rv[1] *= 0.0
 		vm = self.vm_template + self.delta_rv[1]
+		vm *= 0.0
 		ckms = c.to(u.km/u.s).value
 		vmvb_c = vm*self.bcv/ckms
 		#self.rv_data[1] = vm + self.bcv + vmvb_c
 		#self.rv_data[1] = vm + vmvb_c
+		
+		# This sets DRV=0
 		self.rv_data[1] *= 0.0
 		
 		self.rv_table()
@@ -513,7 +518,7 @@ class Corrections:
 		
 		for i in range(len(self.rv_data[3])):
 			self.rv_checks[i].set(int(self.rv_data[3,i]))
-			
+		
 		self.vhelio = [avg,std]
 		self.keep = np.where(self.rv_data[3]==1)[0]
 		
@@ -812,9 +817,11 @@ class Tellurics:
 	
 	def telluric_offset(self):
 		ckms = c.to(u.km/u.s).value
-		self.science.header["DOPCOR"] -= self.telluric_shift[0]
-		self.science.header["VHELIO"] -= self.telluric_shift[0]
+		self.science.header["DOPCOR"] += self.telluric_shift[0]
+		self.science.header["VHELIO"] += self.telluric_shift[0]
 		self.vth.set("{:.2f}".format(self.science.header["VHELIO"]))
+		print('Applied Telluric offset')
+
 
 		
 	def set_telluric_data(self, telluric_data):
@@ -843,7 +850,7 @@ class Tellurics:
 		self.keep = np.where(self.telluric_data[3]==1)[0]
 		
 		self.vh.set("{:.2f}".format(self.telluric_shift[0])+u" \u00B1 "+"{:.2f}".format(self.telluric_shift[1]))
-		try: self.vth.set("{:.2f}".format(self.science.header["VHELIO"]  - self.telluric_shift[0]))
+		try: self.vth.set("{:.2f}".format(self.science.header["VHELIO"]  + self.telluric_shift[0]))
 		except: pass
 		
 		# Add table
@@ -1100,7 +1107,7 @@ class Doppler:
 
 	def shift_spectrum(self):
 		from astropy.io import fits
-		c = 299792458e-3 # km/s
+		ckms = c.to(u.km/u.s).value
 		data, hdr = fits.getdata(self.science.file_name, header=True)
 		# hdu is a numpy array
 		hdul = fits.HDUList()
@@ -1113,9 +1120,9 @@ class Doppler:
 		for key in to_remove: del new_header[key]
 		
 		try:
-			doppler_velocity = float(self.science.header["DOPCOR"])/c
+			doppler_velocity = float(self.science.header["DOPCOR"])/ckms
 		except:
-			doppler_velocity = float(self.science.header["DOPCOR"].split()[0])/c
+			doppler_velocity = float(self.science.header["DOPCOR"].split()[0])/ckms
 		
 		# see https://iraf.net/irafhelp.php?val=dopcor&help=Help+Page
 		one_plus_z_old = self.science.dopcor
@@ -1143,7 +1150,7 @@ class Doppler:
 		new_header["WAT2_{:03.0f}".format(wat_counter)] = dispstring[char_counter:]
 		#new_header["WAT3_001"] = 'wtype=linear'
 		#new_header["CTYPE3"] = 'LINEAR'
-		new_header["DOPCOR"] = '{:.2f} all'.format(doppler_velocity*c)
+		new_header["DOPCOR"] = '{:.2f} all'.format(doppler_velocity*ckms)
 		
 		newfile = self.science.file_name.replace(".fits", "")+"_rv.fits"
 		#newfile = "temp_rv.fits"

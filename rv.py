@@ -102,9 +102,12 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	
 	x = np.array(range(len(soln)), dtype=float)
 	
-	fit = curve_fit(triangle, x, soln,\
+	try:
+		fit = curve_fit(triangle, x, soln,\
 				p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
 				)[0]
+	except TypeError:
+		return None
 
 	# TRY THIS
 	soln_shrink = soln - triangle(range(len(soln)), *fit)
@@ -133,6 +136,8 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 		try:
 			deriv = soln_shrink[solmax+i+1]-soln_shrink[solmax+i]
 		except:
+			print(aperture)
+			return None
 			import matplotlib.pyplot as plt
 			plt.plot(soln)
 			plt.plot(x, triangle(x, *fit))
@@ -537,7 +542,8 @@ def rv_by_aperture(template, science, aperture_list, tellurics=None):
 			rv_data.append(result[0])
 			ccf.append(result[1])
 		else:
-			print('Not converged for aperture %s' %a)
+			#print('Not converged for aperture %s' %a)
+			pass
 
 		if telluric_result != None:
 		#if RV!=None and error!=None:
