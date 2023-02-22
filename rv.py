@@ -106,7 +106,7 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 		fit = curve_fit(triangle, x, soln,\
 				p0=(len(soln)/2., 1.0, -1.0, len(soln)/2.)
 				)[0]
-	except TypeError:
+	except:
 		return None
 
 	# TRY THIS

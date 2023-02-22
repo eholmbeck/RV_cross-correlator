@@ -161,7 +161,10 @@ def show_spectra(files):
 	plt.show()
 	
 
-import glob
-files = glob.glob('/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/*comb_rv.fits')
-show_spectra(files[20:])
+files = ['/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/2MASSJ09185890-2311511_APO35_n1_rv.fits',
+		 '/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/2MASSJ09185890-2311511_APO35_n2_rv.fits',
+		 '/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/2MASSJ09185890-2311511_APO35_n3_rv.fits',
+		 '/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced/201601_APO/2MASSJ09185890-2311511_APO35_n4_rv.fits']
+
+#show_spectra(files)
 '''
