@@ -793,10 +793,14 @@ class Tellurics:
 		self.telluric_shift = None
 		
 		self.vh = tk.StringVar()
+		self.vh_text = tk.StringVar()
 		self.vhlabel = tk.Label(self.window, text="Offset:")
 		self.vhlabel.grid(column=1, row=2, sticky="e")
-		self.vhbox = tk.Label(self.window, textvariable=self.vh)
-		self.vhbox.grid(column=2, row=2, sticky="w")
+		#self.vhbox = tk.Label(self.window, textvariable=self.vh)
+		#self.vhbox.grid(column=2, row=2, sticky="w")
+		self.vh_entry = tk.Entry(self.window, textvariable=self.vh_text, width=10)
+		self.vh_entry.grid(column=2, row=2, sticky="w")
+		self.vh_entry.bind("<Return>", self.set_telluric_text)
 
 		self.vth = tk.StringVar()
 		self.vthlabel = tk.Label(self.window, text="Total RV:")
@@ -817,13 +821,19 @@ class Tellurics:
 	
 	def telluric_offset(self):
 		ckms = c.to(u.km/u.s).value
-		self.science.header["DOPCOR"] += self.telluric_shift[0]
-		self.science.header["VHELIO"] += self.telluric_shift[0]
+		self.science.header["DOPCOR"] += self.vh
+		self.science.header["VHELIO"] += self.vh
 		self.vth.set("{:.2f}".format(self.science.header["VHELIO"]))
 		print('Applied Telluric offset')
 
 
-		
+	def set_telluric_text(self, event):
+		self.vh = float(self.vh_text.get().split()[0])
+		self.vh_text.set("{:.2f}".format(self.vh)+u" \u00B1 "+"{:.2f}".format(self.telluric_shift[1]))
+		try: self.vth.set("{:.2f}".format(self.science.header["VHELIO"] + self.vh))
+		except: pass
+	
+			
 	def set_telluric_data(self, telluric_data):
 		self.telluric_data, self.ccf = telluric_data
 		if len(self.telluric_data[0])!=0:
@@ -849,8 +859,9 @@ class Tellurics:
 		self.telluric_shift = [avg,std]
 		self.keep = np.where(self.telluric_data[3]==1)[0]
 		
-		self.vh.set("{:.2f}".format(self.telluric_shift[0])+u" \u00B1 "+"{:.2f}".format(self.telluric_shift[1]))
-		try: self.vth.set("{:.2f}".format(self.science.header["VHELIO"]  + self.telluric_shift[0]))
+		self.vh = avg
+		self.vh_text.set("{:.2f}".format(self.vh)+u" \u00B1 "+"{:.2f}".format(self.telluric_shift[1]))
+		try: self.vth.set("{:.2f}".format(self.science.header["VHELIO"] + self.vh))
 		except: pass
 		
 		# Add table

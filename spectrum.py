@@ -130,7 +130,6 @@ class FITS:
 		return self.apertures[aperture]
 	'''
 
-'''
 def show_spectra(files):
 	import matplotlib.pyplot as plt
 	fig,ax = plt.subplots(1,1, figsize=(9,6))
@@ -158,13 +157,9 @@ def show_spectra(files):
 		handles.append(h[0])
 
 	ax.legend(lines,handles)
+	plt.xlim(4850, 4870)
 	plt.show()
 	
-
-files = ['/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/2MASSJ09185890-2311511_APO35_n1_rv.fits',
-		 '/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/2MASSJ09185890-2311511_APO35_n2_rv.fits',
-		 '/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201601_APO/2MASSJ09185890-2311511_APO35_n3_rv.fits',
-		 '/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced/201601_APO/2MASSJ09185890-2311511_APO35_n4_rv.fits']
-
+import glob
+files = glob.glob('/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201712_APO/*_rv.fits')
 #show_spectra(files)
-'''

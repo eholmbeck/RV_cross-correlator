@@ -330,7 +330,7 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	
 	ccf = [velocities, soln_shrink, wvfit(x), gauss(xg, *fit)]
 
-	if error > 1000. or abs(RV) > 1000.:
+	if error > 1000. or abs(RV) > 1000. or error < 0.8:
 		accept = 0
 	else:
 		accept = 1
