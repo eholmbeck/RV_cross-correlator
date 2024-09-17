@@ -604,6 +604,9 @@ class Corrections:
 		self.rv_frame.yview_scroll(-1*(event.delta), "units")
 			
 	def rv_table(self):
+		self.rv_frame = tk.Canvas(self.rv_table_box, borderwidth=2)
+		self.rv_frame.bind_all("<MouseWheel>", self.on_mousewheel)
+		
 		#rv_frame.pack(side="left", fill="both", padx=10, pady=10)
 		self.rv_frame.grid(row=0, column=0, sticky="news")
 		buttons_frame = tk.Frame(self.rv_frame, borderwidth=2, relief="groove")
@@ -618,27 +621,26 @@ class Corrections:
 		ttk.Label(buttons_frame, text="RV err", width=8).grid(row=0,column=3, sticky="nwe")
 		
 		self.rv_checks = [tk.IntVar(value=int(r[3])) for r in self.rv_data.T]
+		self.rv_table_data = []
 		for i,r in enumerate(self.rv_data.T):
 			cb = ttk.Checkbutton(buttons_frame, variable=self.rv_checks[i], 
 								 command=lambda i=i: self.select_aps(i),
 								 takefocus=False)
 			cb.grid(column=0, row=i+1)
-			#self.rv_checks[i].set(int(r[3]))
 			
 			ttk.Label(buttons_frame, text="{:>5.0f}".format(r[0])).grid(column=1, row=i+1, sticky='news')
-			ttk.Label(buttons_frame, text="{:>+6.2f}".format(r[1])).grid(column=2, row=i+1, sticky='news')
-			ttk.Label(buttons_frame, text="{:>6.2f}".format(r[2])).grid(column=3, row=i+1, sticky='news')
-			#boxes[x].append(Checkbutton(master, variable = boxVars[x][y], command = lambda x = x: checkRow(x)))
-			#boxes[x][y].grid(row=x+1, column=y+1)
+			lval = ttk.Label(buttons_frame, text="{:>+6.2f}".format(r[1]))
+			lval.grid(column=2, row=i+1, sticky='news')
+			lerr = ttk.Label(buttons_frame, text="{:>6.2f}".format(r[2]))
+			lerr.grid(column=3, row=i+1, sticky='news')
+			self.rv_table_data.append([lval,lerr])
 		
 		rv_scroll = ttk.Scrollbar(self.rv_table_box, orient="vertical", command=self.rv_frame.yview)
-		#rv_scroll.pack(side="right", fill="y")
 		rv_scroll.grid(row=0, column=0, sticky="nes")
 		self.rv_frame.configure(yscrollcommand=rv_scroll.set)#, scrollregion=rv_frame.bbox("all"))
 		
 		self.rv_frame.create_window((0,0), window=buttons_frame, anchor=tk.NW)
 		buttons_frame.update_idletasks()
-		#bbox = self.rv_table_box.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
 		bbox = self.rv_frame.bbox(tk.ALL)  # Get bounding box of canvas with Buttons.
 
 		# Define the scrollable region as entire canvas with only the desired
@@ -646,9 +648,16 @@ class Corrections:
 		w, h = bbox[2]-bbox[1], bbox[3]-bbox[1]
 		dw, dh = int((w/4) * 4), int((h/ROWS) * ROWS_DISP)
 		self.rv_frame.configure(scrollregion=bbox, width=w, height=dh)
-	
+		
 		return
 	
+	def update_table(self):
+		new_rv  = self.rv_data[1][self.chosen_row]
+		new_err = self.rv_data[2][self.chosen_row]
+		self.rv_table_data[self.chosen_row][0].config(text="{:>+6.2f}".format(new_rv))
+		self.rv_table_data[self.chosen_row][1].config(text="{:>6.2f}".format(new_err))
+		
+		
 	def select_aps(self, row):
 		self.rv_checks[row].set(int(abs(self.rv_data[3,row]%2-1)))
 		self.rv_data[3,row] = abs(self.rv_data[3,row]%2-1)
@@ -705,7 +714,8 @@ class Corrections:
 				self.rv_data[3][self.chosen_row] = 0
 		
 		self.window.update()
-		self.rv_table()
+		#self.rv_table()
+		self.update_table()
 		self.rv_average(sig_clip=0)
 
 		return
@@ -771,13 +781,12 @@ class Corrections:
 		self.ccf[self.chosen_row][3] = gauss(fitx, *fit)
 		
 		self.plot_ccf(self.chosen_row)
-		self.rv_average(sig_clip=0)
 		# Update value in table
 		# TODO: Make this update, not rebuild the table from scratch!
-		#self.rv_table()
-		self.window.update()
 		self.rv_table()
 		self.rv_average(sig_clip=0)
+		# I think this just updates the plot?
+		self.window.update()
 		
 		return
 	
@@ -1087,6 +1096,7 @@ class Tellurics:
 		# Update value in table
 		# TODO: Make this update, not rebuild the table from scratch!
 		#self.rv_table()
+		self.update_table()
 		self.window.update()
 		
 		return
