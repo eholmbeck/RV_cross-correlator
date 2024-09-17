@@ -45,7 +45,7 @@ def cross_correlate(template, science, aperture, tellurics=False, log=None):
 
 	
 	try:
-		dv_average,wavelengths, science_norm, template_norm = \
+		velocities,wavelengths, science_norm, template_norm = \
 			clean_and_normalize(science,template, aperture)
 	except:
 		return None,None
@@ -59,12 +59,10 @@ def cross_correlate(template, science, aperture, tellurics=False, log=None):
 					keep[i] = 1
 		
 		if sum(keep)!=0:
-			#import pdb
-			#pdb.set_trace()
-			telluric_soln = get_shifts(list(compress(wavelengths,keep)),\
+			telluric_soln = get_shifts(list(compress(velocities,keep)),\
 								   list(compress(science_norm,keep)),\
 								   list(compress(template_norm,keep)),\
-								   aperture,dv_average,log)
+								   aperture,log)
 		
 		else:
 			telluric_soln = None
@@ -84,18 +82,18 @@ def cross_correlate(template, science, aperture, tellurics=False, log=None):
 		soln = None
 
 	else:
-		soln = get_shifts(list(compress(wavelengths,keep)),\
+		soln = get_shifts(list(compress(velocities,keep)),\
 						  list(compress(science_norm,keep)),\
 						  list(compress(template_norm,keep)),\
-						  aperture,dv_average,log)
+						  aperture,log)
 	
 	return soln,telluric_soln
 
 # ==========================================================
 # ==========================================================
 
-def get_shifts(wavelengths,science_norm,template_norm,\
-			   aperture,dv_average,log=None):
+def get_shifts(velocities,science_norm,template_norm,\
+			   aperture,log=None):
 
 	#soln = scipy.signal.correlate(template_norm, science_norm, mode="full")
 	soln = np.correlate(template_norm, science_norm, mode="full")
@@ -224,7 +222,7 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	
 	# True peak height over average peak height
 	siga_squared = [(soln_shrink[n+int(mu)] - soln_shrink[int(mu)-n])**2. \
-					for n in range(int(len(wavelengths)-abs(mu)-1))]
+					for n in range(int(len(velocities)-abs(mu)-1))]
 	
 	r = abs(gauss(mu, *fit)/np.sqrt(np.mean(siga_squared)))
 
@@ -241,12 +239,21 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	# If the centroid is negative, shift to blue, so the shift
 	# should also be negative.
 	s_centroid = np.sign(centroid)
-
-	RV = -dv_average*centroid
+	
+	#dv_average = 1.0
+	#RV = -dv_average*centroid
+	velocities = np.array(velocities)
+	vv = np.append(velocities[::-1],-velocities[1:])
+	xx = x-(x[-1])/2
+	rv_interp = interpolate.interp1d(xx, vv)
+	RV = -rv_interp(centroid)
+	
 	error = []
 	try:
-		error.append(dv_average*(centroid+sigma)-RV)
-		error.append(RV-dv_average*(centroid-sigma))
+		#error.append(dv_average*(centroid+sigma)-RV)
+		#error.append(RV-dv_average*(centroid-sigma))
+		error.append(rv_interp(centroid+sigma)-RV)
+		error.append(RV-rv_interp(centroid-sigma))
 	except:
 		pass
 	
@@ -282,14 +289,16 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 		axes[0].plot(center_x+solmax,gauss(center_x,*fit))
 		axes[0].set_xlim(solmax-10*s, 10*s+solmax)
 
+		'''
 		velocities = [-((wavelengths[p]/wavelengths[0])-1.0) for p in np.arange(len(wavelengths)-1,-1,-1)]
 		velocities += list(np.array(velocities[::-1][1:])*-1)
 		velocities = ckms*np.array(velocities)
+		'''
 		
 		axes[1].plot(velocities, soln_shrink, color='gray', lw=1)
 		
 		# Gaussian x is still in pixelspace.
-		fit = interpolate.interp1d(range(1-len(wavelengths),len(wavelengths)),\
+		fit = interpolate.interp1d(range(1-len(velocities),len(velocities)),\
 								   velocities)
 		
 		axes[1].plot(fit(x), y, color='C0', ls=':')
@@ -316,21 +325,22 @@ def get_shifts(wavelengths,science_norm,template_norm,\
 	velocities += list(np.array(velocities[::-1][1:])*-1.0)
 	velocities = ckms*np.array(velocities)
 	'''
+	'''
 	velocities = [-((w/wavelengths[0])-1.0) for w in wavelengths[::-1]]
 	velocities += list(np.array(velocities[::-1][1:])*-1.0)
 	velocities = ckms*np.array(velocities)
-	
+	'''
 	# Gaussian x is still in pixelspace.
-	wvfit = interpolate.interp1d(range(1-len(wavelengths),len(wavelengths)),\
-							   velocities)
+	wvfit = interpolate.interp1d(range(1-len(velocities),len(velocities)),\
+							   vv)
 	
-	x = np.linspace(max([1-len(wavelengths),center_x[0]+xmax]), \
-					min([len(wavelengths), center_x[-1]+xmax]), 50)
+	x = np.linspace(max([1-len(velocities),center_x[0]+xmax]), \
+					min([len(velocities), center_x[-1]+xmax]), 50)
 	xg = np.linspace(center_x[0], center_x[-1], 50)
 	
-	ccf = [velocities, soln_shrink, wvfit(x), gauss(xg, *fit)]
-
-	if error > 1000. or abs(RV) > 1000. or error < 0.8:
+	ccf = [vv, soln_shrink, wvfit(x), gauss(xg, *fit)]
+	
+	if error > 1000. or abs(RV) > 1000.:# or error < 0.8:
 		accept = 0
 	else:
 		accept = 1
@@ -460,7 +470,7 @@ def clean_and_normalize(science,template, aperture):
 		allx = allx[0:-trim]
 		tempdata = tempdata[0:-trim]
 		scidata = scidata[0:-trim]
-		new_wavelengths = new_wavelengths[0:-trim]
+		new_wavelengths = new_wavelengths[0:-trim]	
 	
 	
 	# Bin the data, then shift the "allx" by half a knot
@@ -492,7 +502,14 @@ def clean_and_normalize(science,template, aperture):
 	template_norm = template_norm[no_nans]
 	wavelengths = new_wavelengths[no_nans]
 
-	return dv_average, wavelengths, science_norm, template_norm
+	velocities = ckms * (1.0 - wavelengths/wavelengths[0])
+	renormalize_science = interpolate.interp1d(velocities, science_norm)
+	renormalize_template = interpolate.interp1d(velocities, template_norm)
+	new_velocities = np.linspace(velocities[0], velocities[-1], len(velocities))
+	science_norm = renormalize_science(new_velocities)
+	template_norm = renormalize_template(new_velocities)
+
+	return velocities, wavelengths, science_norm, template_norm
 		
 # ==========================================================
 # ==========================================================
@@ -647,3 +664,11 @@ def logger():
 def update_log(data):
 	log.write(data)
 	return
+
+if __name__=="__main__":
+	import spectrum
+	science = spectrum.FITS('/Volumes/GoogleDrive/Shared drives/RPA - NOIRLab/data/Reduced/201708_Magellan/2massj1830-4555blue_multi.fits')
+	template = spectrum.FITS('/Volumes/GoogleDrive/Shared drives/RPA - NOIRLab/data/Reduced/HD122563/hd122563blue_multi_magellan_07_th.fits')
+	[rv_data, _], _ = rv_by_aperture(template, science, science.data.keys())
+	ap,rv,err,keep = rv_data
+	print(rv_average(rv_data))

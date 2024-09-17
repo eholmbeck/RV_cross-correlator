@@ -130,7 +130,8 @@ class Start:
 		hs = self.window.winfo_screenheight() # height of the screen
 		dpi = self.window.winfo_fpixels('1i')
 		
-		self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
+		#self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
+		self.fig = Figure(figsize=(hs*0.75/dpi, ws*0.5*0.8/dpi))
 		#self.fig = Figure()
 		self.ax = self.fig.add_subplot(111)
 		self.template_ax = self.ax.twinx()
@@ -176,11 +177,12 @@ class Start:
 
 	def plot_ap(self, spectrum, ap_num, ax=None, **kwargs):
 		if ax is None: ax = self.ax
+
 		if spectrum != None:
 			try:
 				ax.plot(spectrum.wavelength[ap_num], spectrum.data[ap_num], **kwargs)
 			except:
-				print("Aperture %s does not exist!" %ap_num)
+				print(f"Aperture {ap_num:.0f} of {spectrum.file_name} does not exist!")
 		return
 
 	def open_science_file(self):
@@ -207,10 +209,12 @@ class Start:
 			self.template_plot.remove()
 		except:
 			pass
-
+			
 		filename = askopenfilename(filetypes=(("fits files", "*.fits"), ("All files", "*,*")))
+		
 		self.template = spectrum.FITS(filename)
 		self.vhelio_template_exists()
+
 		if self.template.first_beam > self.science.first_beam:
 			self.ap_num = self.template.first_beam
 			self.science_plot = self.plot_ap(self.science, self.ap_num, lw=1)
@@ -296,7 +300,8 @@ class Corrections:
 		hs = self.window.winfo_screenheight() # height of the screen
 		dpi = self.window.winfo_fpixels('1i')
 
-		self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
+		#self.fig = Figure(figsize=(hs*0.55/dpi, ws*0.5*0.6/dpi))
+		self.fig = Figure(figsize=(hs*0.75/dpi, ws*0.5*0.8/dpi))
 		self.rv_ax = self.fig.add_subplot(2,1,1,picker=True)
 		self.ccf_ax = self.fig.add_subplot(2,1,2,picker=True)
 		self.ccf_ax.set_xlabel('Velocity Shift (km/s)')
@@ -391,7 +396,7 @@ class Corrections:
 			except:
 				site_name = spectrum.header["SITENAME"].lower()
 			
-			site = EarthLocation.of_site(site_name)
+			site = EarthLocation.of_site(site_name.strip())
 			
 			if 'lco' in site_name:
 				RA = spectrum.header["RA-D"]
@@ -436,8 +441,8 @@ class Corrections:
 					DEC = spectrum.header["DEC-D"]
 					sc = SkyCoord(ra=RA*u.deg, dec=DEC*u.deg)
 				except:
-					RA = spectrum.header['RA']
-					DEC = spectrum.header['DEC']
+					RA = spectrum.header[spectrum.ra_key]
+					DEC = spectrum.header[spectrum.dec_key]
 					sc = SkyCoord(ra=RA, dec=DEC, unit=(u.hourangle, u.deg))
 
 				# TO-DO: CHANGE TO UT-MID
@@ -448,11 +453,19 @@ class Corrections:
 			
 				try:
 					UT_TIME = spectrum.header["UT"]
+					ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
+					ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
 				except TypeError:
 					UT_TIME = spectrum.header["UT-TIME"]
+					ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
+					ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+				except KeyError:
+					ut_start = Time(UT_DATE, format='isot', scale="utc")
+					ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
+				except:
+					import pdb
+					pdb.set_trace()			
 				
-				ut_start = Time(UT_DATE + ' ' + UT_TIME, format='iso', scale="utc")
-				ut_mid = ut_start + (spectrum.header['EXPTIME']/2.)*u.s
 			# -------------------------------------------------------------			
 			
 			barycorr = sc.radial_velocity_correction(obstime=ut_mid, location=site) 
@@ -462,6 +475,7 @@ class Corrections:
 	
 	def calculate_rvs(self):
 		print('Running cross-correlation. This may take a minute...')
+	
 		rv_data, telluric_data = rv.rv_by_aperture(\
 										self.template, self.science, \
 										self.science.data.keys(), \
@@ -683,7 +697,17 @@ class Corrections:
 			else:
 				self.refit_CCF(x_select)
 				self.gaussian_point_chosen = None
+		elif event.key in "uUaA":
+			original_keep = self.rv_data[3][self.chosen_row]
+			if original_keep == 0:
+				self.rv_data[3][self.chosen_row] = 1
+			else:
+				self.rv_data[3][self.chosen_row] = 0
 		
+		self.window.update()
+		self.rv_table()
+		self.rv_average(sig_clip=0)
+
 		return
 
 	
@@ -751,6 +775,9 @@ class Corrections:
 		# Update value in table
 		# TODO: Make this update, not rebuild the table from scratch!
 		#self.rv_table()
+		self.window.update()
+		self.rv_table()
+		self.rv_average(sig_clip=0)
 		
 		return
 	
@@ -1060,6 +1087,7 @@ class Tellurics:
 		# Update value in table
 		# TODO: Make this update, not rebuild the table from scratch!
 		#self.rv_table()
+		self.window.update()
 		
 		return
 
@@ -1113,7 +1141,7 @@ class Doppler:
 			try:
 				self.ax.plot(spectrum.wavelength[ap_num], spectrum.data[ap_num], **kwargs)
 			except:
-				print("Aperture %s does not exist!" %ap_num)
+				print(f"Aperture {ap_num:.0f} of {spectrum.file_name} does not exist!")
 		return
 
 	def shift_spectrum(self):

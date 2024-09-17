@@ -5,19 +5,92 @@ from astropy.io import fits
 class FITS:
 	def __init__(self,file):
 		self.file_name = file
+		# Put all this data reassignment to a subroutine; I think the file is being overwritten.
+		
+		for method in ["self.__read_dispersion__()", "self.__read_neid__()"]:
+			try:
+				self.wavelength = eval(method)
+				break
+			except: continue
+		
+	def __read_neid__(self):
+		self.hdu = fits.open(self.file_name)
+		self.first_beam = 0
+		self.dispersion = None
+
+		self.header = self.hdu[0].header
+		'''
+		if 'SCIWAVE' not in self.hdu:
+			image_header = hdu[0].header
+		else:
+			image_header = hdu['SCIWAVE'].header
+		'''
+		
+		self.data = self.hdu['SCIFLUX'].data
+		self.apertures = self.data.shape[0]
+		wavelength = self.hdu['SCIWAVE'].data
+		
+		'''
+		metadata = {}
+		for key, value in hdu.items():
+			if key in metadata:
+				metadata[key] += value
+			else:
+				metadata[key] = value
+		
+		self.dispersion = {}
+		wavelength = {aperture:np.zeros(metadata['NAXIS1']) for aperture in range(metadata['NAXIS2'])}
+		for order in range(1,metadata['NAXIS2']+1):
+			crval = metadata[f'CRVAL{order:.0f}']
+			cdelt = metadata[f'CDELT{order:.0f}']
+			poly_type = metadata[f'PS{order:.0f}_0']
+			poly_param_order = metadata[f'PS{order:.0f}_1']
+			#pixels = np.arange(*eval(metadata[f'PS{order:.0f}_2']))
+			echelle_order = metadata[f'PS{order:.0f}_3']
+			leg_range = eval(metadata[f'PS{order:.0f}_4'])
+			#poly_params = [metadata[f'PV{order:.0f}_{param:.0f}'] for param in range(poly_param_order)]
+			poly_params = []
+			for param in range(poly_param_order):
+				value = metadata[f'PV{order:.0f}_{param:.0f}']
+				if value is None: poly_params.append(np.nan)
+				else: poly_params.append(value)
+			
+			x = np.linspace(leg_range[0], leg_range[1], metadata['NAXIS1'])
+			if poly_type=='Legendre' or 'legendre' in poly_type:
+				from scipy.special import legendre
+				for li in range(poly_param_order):
+					wavelength[order-1] += poly_params[li]*legendre(li)(x)
+			
+			else: print(poly_type)
+			
+			self.dispersion[order-1] = self.data[order-1]
+		
+		self.data = self.dispersion
+		'''
+		aps = range(len(wavelength))
+		self.first_beam = min(aps)
+		
+		data_copy = self.data
+		self.data = {}
+		for ai,a in enumerate(aps):
+			self.data[a] = data_copy[ai]
+		
+		self.ra_key = 'QRA'
+		self.dec_key = 'QDEC'
+		return wavelength
+
+	def __read_dispersion__(self):
 		self.hdu = fits.open(self.file_name)
 		self.header = self.hdu[0].header
+
 		if len(self.hdu[0].shape) == 3:
 			self.data = self.hdu[0].data[1]
 		else:
 			self.data = self.hdu[0].data
 
 		self.apertures = self.data.shape[0]
-		self.first_beam = 0
 		self.dispersion = None
-		self.wavelength = self.__read_dispersion__()
 		
-	def __read_dispersion__(self):
 		fits.conf.strip_header_whitespace = False
 		dispersion = ['']*self.apertures
 
@@ -114,6 +187,8 @@ class FITS:
 			#try: self.data[a] = data_copy[a-self.first_beam-new_start]
 			self.data[a] = data_copy[ai]
 		
+		self.ra_key = 'RA'
+		self.dec_key = 'DEC'
 		return wavelength
 		
 	'''	
@@ -160,6 +235,15 @@ def show_spectra(files):
 	plt.xlim(4850, 4870)
 	plt.show()
 	
-import glob
-files = glob.glob('/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/201712_APO/*_rv.fits')
-#show_spectra(files)
+if False:
+	import glob
+	files = glob.glob('/Volumes/GoogleDrive/Shared drives/RPA/data/Reduced_rvcorrected/202008_APO/*_rv.fits')
+
+	for i in range(int(len(files)/5)):
+		if (len(files)-(5*i)) < 5:
+			show_spectra(files[5*i:])
+		else:
+			show_spectra(files[5*i:5*(i+1)])
+	
+	#show_spectra(files[5*(i+1):])
+	show_spectra(files[-5:])
